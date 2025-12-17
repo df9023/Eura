@@ -2,6 +2,7 @@ import os
 import time
 import jwt
 import requests
+from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -16,6 +17,14 @@ app = FastAPI(
     title="Repository Scanner API",
     description="API for scanning GitHub repositories using GitHub App authentication",
     version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all frontends to connect
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods (POST, GET, etc.)
+    allow_headers=["*"],  # Allows all headers
 )
 
 # Environment variables
