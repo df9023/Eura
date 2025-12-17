@@ -2,6 +2,7 @@ import os
 import time
 import jwt
 import requests
+import traceback
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 from fastapi import FastAPI, HTTPException
@@ -105,19 +106,22 @@ def get_github_client(installation_id: int) -> Github:
     return Github(installation_token)
 
 
+
+
 @app.post("/scan-repo")
 async def scan_repo(request: ScanRepoRequest):
-    """
-    Scan a GitHub repository and return the file tree.
-    
-    Args:
-        request: ScanRepoRequest containing repo_name and installation_id
-        
-    Returns:
-        Dictionary with success status and file list
-    """
     try:
+        print("DEBUG: Starting scan-repo endpoint")
+        
+        # Explicitly check if GITHUB_APP_ID and GITHUB_PRIVATE_KEY exist
+        print("DEBUG: Checking environment variables")
+        if not GITHUB_APP_ID:
+            raise ValueError("GITHUB_APP_ID is missing in environment variables")
+        if not GITHUB_PRIVATE_KEY:
+            raise ValueError("GITHUB_PRIVATE_KEY is missing in environment variables")
+        
         # Validate repo_name format
+        print("DEBUG: Validating repo_name format")
         if "/" not in request.repo_name:
             raise HTTPException(
                 status_code=400,
@@ -125,9 +129,11 @@ async def scan_repo(request: ScanRepoRequest):
             )
         
         # Get authenticated GitHub client
+        print("DEBUG: Auth started")
         github_client = get_github_client(request.installation_id)
         
         # Get repository
+        print(f"DEBUG: Fetching repository '{request.repo_name}'")
         try:
             repo = github_client.get_repo(request.repo_name)
         except Exception as e:
@@ -136,7 +142,10 @@ async def scan_repo(request: ScanRepoRequest):
                 detail=f"Repository '{request.repo_name}' not found or not accessible: {str(e)}"
             )
         
+        print("DEBUG: Repo fetched")
+        
         # Get file tree (get all files recursively)
+        print("DEBUG: Fetching file tree")
         files = []
         try:
             contents = repo.get_contents("")
@@ -152,12 +161,15 @@ async def scan_repo(request: ScanRepoRequest):
                 detail=f"Failed to fetch repository contents: {str(e)}"
             )
         
+        print(f"DEBUG: File tree fetched, found {len(files)} files")
+        
         # Print files to console (for testing)
         print(f"\n=== Files in repository '{request.repo_name}' ===")
         for file_path in sorted(files):
             print(file_path)
         print(f"=== Total files: {len(files)} ===\n")
         
+        print("DEBUG: Scan complete, returning response")
         return {
             "success": True,
             "repo_name": request.repo_name,
@@ -167,14 +179,12 @@ async def scan_repo(request: ScanRepoRequest):
         
     except HTTPException:
         raise
-    except ValueError as e:
-        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unexpected error: {str(e)}"
-        )
-
+        # Capture the exception
+        error_msg = f"SERVER CRASHED: {str(e)}"
+        print(error_msg)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=error_msg)
 
 @app.get("/health")
 async def health_check():
@@ -184,5 +194,5 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8080)
 
