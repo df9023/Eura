@@ -4,11 +4,12 @@ import jwt
 import requests
 import traceback
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
+from typing import Optional, List, Dict
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from github import Github
+from openai import AsyncOpenAI
 
 # Load environment variables
 load_dotenv()
@@ -33,15 +34,78 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 GITHUB_APP_ID = os.getenv("GITHUB_APP_ID")
 GITHUB_PRIVATE_KEY = os.getenv("GITHUB_PRIVATE_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Validate required environment variables
 if not GITHUB_APP_ID or not GITHUB_PRIVATE_KEY:
     raise ValueError("GITHUB_APP_ID and GITHUB_PRIVATE_KEY must be set in environment variables")
 
+# Initialize OpenAI client
+openai_client = None
+if OPENAI_API_KEY:
+    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+
 
 class ScanRepoRequest(BaseModel):
     repo_name: str
     installation_id: int
+
+
+def is_text_file(file_path: str) -> bool:
+    """
+    Check if a file is a text/code file that should be analyzed.
+    
+    Args:
+        file_path: Path to the file
+        
+    Returns:
+        True if the file should be analyzed, False otherwise
+    """
+    # Define text/code file extensions
+    text_extensions = {
+        '.py', '.js', '.ts', '.jsx', '.tsx', '.md', '.txt', '.json', '.yaml', '.yml',
+        '.html', '.css', '.scss', '.sass', '.less', '.xml', '.csv', '.sql', '.sh', '.bash',
+        '.zsh', '.fish', '.ps1', '.bat', '.cmd', '.go', '.rs', '.java', '.cpp', '.c', '.h',
+        '.hpp', '.cc', '.cxx', '.cs', '.php', '.rb', '.swift', '.kt', '.scala', '.clj',
+        '.cljs', '.r', '.R', '.m', '.mm', '.pl', '.pm', '.lua', '.vim', '.vimrc', '.dockerfile',
+        '.makefile', '.cmake', '.gradle', '.maven', '.pom', '.toml', '.ini', '.cfg', '.conf',
+        '.config', '.env', '.gitignore', '.gitattributes', '.editorconfig', '.eslintrc',
+        '.prettierrc', '.babelrc', '.tsconfig', '.jsconfig', '.package.json', '.requirements.txt',
+        '.gemfile', '.cargo', '.lock', '.log', '.readme', '.license', '.licence', '.authors',
+        '.contributors', '.changelog', '.history', '.todo', '.notes', '.markdown'
+    }
+    
+    # Define binary file extensions to skip
+    binary_extensions = {
+        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.ico', '.webp', '.tiff', '.tif',
+        '.pyc', '.pyo', '.pyd', '.so', '.dll', '.exe', '.dylib', '.bin', '.dat', '.db',
+        '.sqlite', '.sqlite3', '.pdf', '.zip', '.tar', '.gz', '.bz2', '.xz', '.7z', '.rar',
+        '.mp3', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.ogg', '.wav', '.flac',
+        '.woff', '.woff2', '.ttf', '.otf', '.eot',
+        '.class', '.jar', '.war', '.ear', '.o', '.obj', '.a', '.lib'
+    }
+    
+    file_lower = file_path.lower()
+    
+    # Check if it's a binary file extension
+    for ext in binary_extensions:
+        if file_lower.endswith(ext):
+            return False
+    
+    # Check if it's a text file extension
+    for ext in text_extensions:
+        if file_lower.endswith(ext):
+            return True
+    
+    # Check if it's a dotfile (like .gitignore, .env, etc.)
+    basename = os.path.basename(file_lower)
+    if basename.startswith('.'):
+        # Allow common dotfiles
+        if basename in {'.gitignore', '.gitattributes', '.env', '.editorconfig'}:
+            return True
+    
+    # Default: skip files without recognized extensions
+    return False
 
 
 def get_github_client(installation_id: int) -> Github:
@@ -119,6 +183,10 @@ async def scan_repo(request: ScanRepoRequest):
             raise ValueError("GITHUB_APP_ID is missing in environment variables")
         if not GITHUB_PRIVATE_KEY:
             raise ValueError("GITHUB_PRIVATE_KEY is missing in environment variables")
+        if not OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY is missing in environment variables")
+        if not openai_client:
+            raise ValueError("OpenAI client not initialized")
         
         # Validate repo_name format
         print("DEBUG: Validating repo_name format")
@@ -146,13 +214,13 @@ async def scan_repo(request: ScanRepoRequest):
         
         # Get file tree (get all files recursively)
         print("DEBUG: Fetching file tree")
-        files = []
+        all_files = []
         try:
             contents = repo.get_contents("")
             while contents:
                 file_content = contents.pop(0)
                 if file_content.type == "file":
-                    files.append(file_content.path)
+                    all_files.append(file_content.path)
                 elif file_content.type == "dir":
                     contents.extend(repo.get_contents(file_content.path))
         except Exception as e:
@@ -161,20 +229,74 @@ async def scan_repo(request: ScanRepoRequest):
                 detail=f"Failed to fetch repository contents: {str(e)}"
             )
         
-        print(f"DEBUG: File tree fetched, found {len(files)} files")
+        print(f"DEBUG: File tree fetched, found {len(all_files)} total files")
         
-        # Print files to console (for testing)
-        print(f"\n=== Files in repository '{request.repo_name}' ===")
-        for file_path in sorted(files):
-            print(file_path)
-        print(f"=== Total files: {len(files)} ===\n")
+        # Filter files to only process text/code files
+        print("DEBUG: Filtering text/code files")
+        text_files = [f for f in all_files if is_text_file(f)]
+        print(f"DEBUG: Found {len(text_files)} text/code files to analyze")
         
+        # Analyze files with AI
+        print("DEBUG: Starting AI analysis")
+        results: List[Dict[str, str]] = []
+        
+        for file_path in text_files:
+            try:
+                print(f"DEBUG: Analyzing file: {file_path}")
+                
+                # Read file content
+                file_content_obj = repo.get_contents(file_path)
+                file_content = file_content_obj.decoded_content.decode('utf-8', errors='ignore')
+                
+                # Prepare the prompt
+                system_prompt = "You are a compliance auditor. Check this code for security issues (hardcoded keys, weak passwords) and style violations. Be concise."
+                
+                # Call OpenAI API
+                try:
+                    response = await openai_client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": f"File: {file_path}\n\nCode:\n{file_content}"}
+                        ],
+                        max_tokens=500,
+                        temperature=0.3
+                    )
+                    
+                    analysis = response.choices[0].message.content.strip()
+                    results.append({
+                        "file": file_path,
+                        "analysis": analysis
+                    })
+                    print(f"DEBUG: Completed analysis for {file_path}")
+                    
+                except Exception as e:
+                    # If OpenAI call fails for a specific file, log it but continue
+                    error_analysis = f"Error analyzing file: {str(e)}"
+                    results.append({
+                        "file": file_path,
+                        "analysis": error_analysis
+                    })
+                    print(f"DEBUG: Error analyzing {file_path}: {str(e)}")
+                    
+            except Exception as e:
+                # If reading file fails, log it but continue
+                error_analysis = f"Error reading file: {str(e)}"
+                results.append({
+                    "file": file_path,
+                    "analysis": error_analysis
+                })
+                print(f"DEBUG: Error reading {file_path}: {str(e)}")
+        
+        print(f"DEBUG: AI analysis complete, analyzed {len(results)} files")
         print("DEBUG: Scan complete, returning response")
+        
         return {
             "success": True,
             "repo_name": request.repo_name,
-            "file_count": len(files),
-            "files": sorted(files)
+            "total_files": len(all_files),
+            "analyzed_files": len(text_files),
+            "results": results
         }
         
     except HTTPException:
