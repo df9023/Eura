@@ -26,8 +26,6 @@ logger = logging.getLogger("repo-scanner")
 # ----------------------------
 # Config
 # ----------------------------
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 GITHUB_APP_ID = os.getenv("GITHUB_APP_ID")
 GITHUB_PRIVATE_KEY = os.getenv("GITHUB_PRIVATE_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -52,11 +50,17 @@ if not GITHUB_APP_ID or not GITHUB_PRIVATE_KEY:
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY must be set")
 
-if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-    raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
-
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+# Supabase initialization (optional)
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+supabase: Optional[Client] = None
+if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+else:
+    logger.warning("Supabase not configured: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing.")
 
 
 # ----------------------------
@@ -321,6 +325,8 @@ def parse_line_number(lines_str: Optional[str]) -> Optional[int]:
 
 def create_scan_record(project_id: str, repo_name: str, installation_id: int) -> str:
     """Create a scan record and return scan_id."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     try:
         result = supabase.table("scans").insert({
             "project_id": project_id,
@@ -342,6 +348,8 @@ def create_scan_record(project_id: str, repo_name: str, installation_id: int) ->
 
 def update_scan_success(scan_id: str, duration_ms: int, total_files: int, analyzed_files: int):
     """Update scan record on success."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     try:
         supabase.table("scans").update({
             "status": "completed",
@@ -358,6 +366,8 @@ def update_scan_success(scan_id: str, duration_ms: int, total_files: int, analyz
 
 def update_scan_failure(scan_id: str, duration_ms: int, error_msg: str):
     """Update scan record on failure."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     try:
         supabase.table("scans").update({
             "status": "failed",
@@ -372,6 +382,8 @@ def update_scan_failure(scan_id: str, duration_ms: int, error_msg: str):
 
 def update_project_last_scan(project_id: str):
     """Update project's last_scan_at timestamp."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     try:
         supabase.table("projects").update({
             "last_scan_at": datetime.utcnow().isoformat() + "Z",
@@ -384,6 +396,8 @@ def update_project_last_scan(project_id: str):
 
 def insert_findings(scan_id: str, project_id: str, findings: List[Finding]):
     """Insert findings with deduplication by fingerprint."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     if not findings:
         logger.info("No findings to insert")
         return
