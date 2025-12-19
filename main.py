@@ -12,6 +12,7 @@ import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import Response
 from pydantic import BaseModel, Field
 from github import Github
 from openai import AsyncOpenAI
@@ -119,8 +120,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins or ["*"],
     allow_credentials=False,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
 )
 
 
@@ -505,6 +508,11 @@ def insert_findings(scan_id: str, project_id: str, findings: List[Finding]):
 # ----------------------------
 # Routes
 # ----------------------------
+@app.options("/{path:path}")
+async def options_preflight(path: str):
+    return Response(status_code=204)
+
+
 @app.post("/scan-repo", response_model=ScanResponse)
 async def scan_repo(request: ScanRepoRequest):
     scan_id: Optional[str] = None
