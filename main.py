@@ -57,10 +57,14 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 supabase: Optional[Client] = None
-if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
-    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-else:
-    logger.warning("Supabase not configured: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing.")
+try:
+    if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    else:
+        logger.warning("Supabase not configured: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.")
+except Exception as e:
+    supabase = None
+    logger.exception("Supabase client init failed: %s", e)
 
 
 # ----------------------------
@@ -508,6 +512,9 @@ async def scan_repo(request: ScanRepoRequest):
     
     try:
         logger.info("Starting scan: project_id=%s, repo_name=%s", request.project_id, request.repo_name)
+        
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Supabase not configured (invalid key or missing env vars)")
         
         if "/" not in request.repo_name:
             raise HTTPException(status_code=400, detail="repo_name must be in format 'owner/repo'")
