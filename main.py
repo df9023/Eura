@@ -12,6 +12,7 @@ import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import Response
 from pydantic import BaseModel, Field
 from github import Github
 from openai import AsyncOpenAI
@@ -26,8 +27,6 @@ logger = logging.getLogger("repo-scanner")
 # ----------------------------
 # Config
 # ----------------------------
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 GITHUB_APP_ID = os.getenv("GITHUB_APP_ID")
 GITHUB_PRIVATE_KEY = os.getenv("GITHUB_PRIVATE_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -44,7 +43,11 @@ SKIP_DIRS = {
 }
 
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "")
-allow_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
+if ALLOWED_ORIGINS:
+    allow_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
+else:
+    allow_origins = ["*"]
+logger.info("CORS: Allowed origins configured as: %s", allow_origins)
 
 if not GITHUB_APP_ID or not GITHUB_PRIVATE_KEY:
     raise ValueError("GITHUB_APP_ID and GITHUB_PRIVATE_KEY must be set")
@@ -52,11 +55,21 @@ if not GITHUB_APP_ID or not GITHUB_PRIVATE_KEY:
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY must be set")
 
-if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-    raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
-
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+# Supabase initialization (optional)
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+supabase: Optional[Client] = None
+try:
+    if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    else:
+        logger.warning("Supabase not configured: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.")
+except Exception as e:
+    supabase = None
+    logger.exception("Supabase client init failed: %s", e)
 
 
 # ----------------------------
@@ -109,10 +122,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allow_origins if allow_origins else ["http://localhost:3000"],
-    allow_credentials=False,
+    allow_origins=allow_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
 )
 
 
@@ -164,6 +179,7 @@ def get_private_key_pem() -> str:
 
 
 def get_github_client(installation_id: int) -> Github:
+    """Get authenticated GitHub client for installation."""
     app_id = int(GITHUB_APP_ID)
     private_key_pem = get_private_key_pem()
 
@@ -186,13 +202,53 @@ def get_github_client(installation_id: int) -> Github:
         resp = requests.post(url, headers=headers, timeout=20)
         resp.raise_for_status()
         installation_token = resp.json()["token"]
+        logger.debug("Successfully obtained GitHub installation token")
     except requests.exceptions.RequestException as e:
+        logger.error("Failed to get installation token: %s", e)
         raise ValueError(f"Failed to get installation token: {e}") from e
 
     return Github(installation_token)
 
 
+def list_repo_files(repo: any, max_files: int) -> List[str]:
+    """List all files in repository, respecting skip directories and limits."""
+    all_files: List[str] = []
+    try:
+        contents = repo.get_contents("")
+        while contents and len(all_files) < max_files * 5:
+            item = contents.pop(0)
+            if should_skip_path(item.path):
+                continue
+            if item.type == "file":
+                all_files.append(item.path)
+            elif item.type == "dir":
+                contents.extend(repo.get_contents(item.path))
+    except Exception as e:
+        logger.error("Failed to list repo files: %s", e)
+        raise
+    
+    return all_files
+
+
+def read_repo_file(repo: any, file_path: str) -> Optional[str]:
+    """Read file content from repository, handling size limits and encoding."""
+    try:
+        file_obj = repo.get_contents(file_path)
+        
+        # Skip large blobs
+        if getattr(file_obj, "size", 0) and file_obj.size > MAX_FILE_BYTES:
+            logger.debug("Skipping large file %s: %d bytes", file_path, file_obj.size)
+            return None
+        
+        content = file_obj.decoded_content.decode("utf-8", errors="ignore")
+        return truncate_for_llm(content)
+    except Exception as e:
+        logger.warning("Failed to read file %s: %s", file_path, str(e)[:200])
+        raise
+
+
 def truncate_for_llm(content: str) -> str:
+    """Truncate file content to fit within LLM limits while preserving context."""
     if len(content) <= MAX_CHARS_PER_FILE:
         return content
     # Keep start and end so configs and exports remain visible
@@ -201,10 +257,69 @@ def truncate_for_llm(content: str) -> str:
     return head + "\n\n...TRUNCATED...\n\n" + tail
 
 
+def make_parse_failure_finding(file_path: str, raw_response: str) -> Finding:
+    """Create a finding for LLM parse failures."""
+    return Finding(
+        id=str(uuid.uuid4()),
+        title="LLM output parsing failed",
+        severity="info",
+        confidence=0.2,
+        summary="The model did not return valid JSON.",
+        details=raw_response[:2000] if raw_response else "Empty response from LLM",
+        evidence=[Evidence(file=file_path)],
+        recommendation="Retry the scan or adjust the prompt to force strict JSON output.",
+        category="other",
+    )
+
+
+def normalize_findings(findings_in: List[Dict], file_path: str) -> List[Finding]:
+    """Normalize and validate findings from LLM output."""
+    findings: List[Finding] = []
+    allowed_severities = {"high", "medium", "low", "info"}
+    
+    for f in findings_in:
+        # Ensure evidence has file path
+        evidence_items = []
+        for ev in f.get("evidence", []) or []:
+            evidence_items.append(
+                Evidence(
+                    file=ev.get("file") or file_path,  # Use file_path if missing
+                    lines=ev.get("lines"),
+                    snippet=ev.get("snippet"),
+                )
+            )
+        if not evidence_items:
+            evidence_items = [Evidence(file=file_path)]
+
+        # Normalize severity
+        severity = f.get("severity", "info").lower()
+        if severity not in allowed_severities:
+            severity = "info"
+
+        # Clamp confidence
+        confidence = float(f.get("confidence", 0.4))
+        confidence = max(0.0, min(1.0, confidence))
+
+        findings.append(
+            Finding(
+                id=str(uuid.uuid4()),
+                title=f.get("title", "Untitled finding") or "Untitled finding",
+                severity=severity,
+                confidence=confidence,
+                summary=f.get("summary", "") or "",
+                details=f.get("details", "") or "",
+                evidence=evidence_items,
+                recommendation=f.get("recommendation", "") or "",
+                category=f.get("category"),
+            )
+        )
+
+    return findings
+
+
 async def analyze_file_with_llm(file_path: str, file_content: str) -> List[Finding]:
-    system_prompt = """
-You are a security code auditor.
-Return ONLY valid JSON that matches this schema:
+    """Analyze file with LLM, enforcing JSON output with retry."""
+    system_prompt = """You are a security code auditor. Return ONLY valid JSON matching this exact schema:
 {
   "findings": [
     {
@@ -216,83 +331,80 @@ Return ONLY valid JSON that matches this schema:
       "recommendation": "clear fix instruction",
       "category": "secrets|auth|crypto|injection|config|logging|dependency|other",
       "evidence": [
-        { "lines": "optional line range like 10-18", "snippet": "short code excerpt" }
+        { "file": "string", "lines": "string|null", "snippet": "string|null" }
       ]
     }
   ]
 }
 
 Rules:
+- Return ONLY JSON, no markdown, no code blocks, no explanation.
 - Only report issues you can justify from the provided code.
-- If you are unsure, lower confidence and severity.
+- If unsure, lower confidence and severity.
 - If no issues, return {"findings": []}.
 - Evidence snippets must be copied from the code (short).
-""".strip()
+- Every evidence entry must include "file" field."""
 
     user_prompt = f"File: {file_path}\n\nCode:\n{file_content}"
 
-    resp = await openai_client.chat.completions.create(
-        model="gpt-5o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        max_tokens=700,
-        temperature=0.2,
-    )
+    # Try with JSON mode first (if supported), then fallback to prompt enforcement
+    max_retries = 1
+    for attempt in range(max_retries + 1):
+        try:
+            # Try with response_format="json_object" if available
+            create_kwargs = {
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "max_tokens": 2000,
+                "temperature": 0.2,
+            }
+            
+            # Try to use JSON mode if available in the SDK
+            try:
+                create_kwargs["response_format"] = {"type": "json_object"}
+            except (TypeError, AttributeError):
+                # If response_format not supported, rely on prompt
+                pass
 
-    raw = (resp.choices[0].message.content or "").strip()
+            resp = await openai_client.chat.completions.create(**create_kwargs)
+            raw = (resp.choices[0].message.content or "").strip()
 
-    # Minimal robust parse: the model should return JSON, but protect the API if it fails.
-    import json
-    try:
-        data = json.loads(raw)
-        findings_in = data.get("findings", [])
-    except Exception:
-        # If JSON fails, return a single info finding explaining parse failure
-        return [
-            Finding(
-                id=str(uuid.uuid4()),
-                title="LLM output parsing failed",
-                severity="info",
-                confidence=0.2,
-                summary="The model did not return valid JSON.",
-                details=raw[:2000],
-                evidence=[Evidence(file=file_path)],
-                recommendation="Retry the scan or adjust the prompt to force strict JSON output.",
-                category="other",
-            )
-        ]
+            # Remove markdown code blocks if present
+            if raw.startswith("```"):
+                lines = raw.split("\n")
+                if lines[0].startswith("```json") or lines[0].startswith("```"):
+                    raw = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
 
-    findings: List[Finding] = []
-    for f in findings_in:
-        evidence_items = []
-        for ev in f.get("evidence", []) or []:
-            evidence_items.append(
-                Evidence(
-                    file=file_path,
-                    lines=ev.get("lines"),
-                    snippet=ev.get("snippet"),
-                )
-            )
-        if not evidence_items:
-            evidence_items = [Evidence(file=file_path)]
+            # Parse JSON
+            try:
+                data = json.loads(raw)
+                findings_in = data.get("findings", [])
+                if not isinstance(findings_in, list):
+                    findings_in = []
+                
+                return normalize_findings(findings_in, file_path)
+            except json.JSONDecodeError as e:
+                if attempt < max_retries:
+                    logger.warning("JSON parse failed (attempt %d/%d) for %s, retrying: %s", 
+                                  attempt + 1, max_retries + 1, file_path, str(e)[:100])
+                    continue
+                else:
+                    logger.error("JSON parse failed after retries for %s: %s", file_path, str(e)[:100])
+                    return [make_parse_failure_finding(file_path, raw)]
+        except Exception as e:
+            if attempt < max_retries:
+                logger.warning("LLM call failed (attempt %d/%d) for %s, retrying: %s", 
+                              attempt + 1, max_retries + 1, file_path, str(e)[:100])
+                continue
+            else:
+                logger.error("LLM call failed after retries for %s: %s", file_path, str(e)[:100])
+                return [make_parse_failure_finding(file_path, f"LLM error: {str(e)[:500]}")]
 
-        findings.append(
-            Finding(
-                id=str(uuid.uuid4()),
-                title=f.get("title", "Untitled finding"),
-                severity=f.get("severity", "info"),
-                confidence=float(f.get("confidence", 0.4)),
-                summary=f.get("summary", ""),
-                details=f.get("details", ""),
-                evidence=evidence_items,
-                recommendation=f.get("recommendation", ""),
-                category=f.get("category"),
-            )
-        )
-
-    return findings
+    # Should not reach here, but safety fallback
+    return [make_parse_failure_finding(file_path, "Unknown error")]
 
 
 # ----------------------------
@@ -321,6 +433,8 @@ def parse_line_number(lines_str: Optional[str]) -> Optional[int]:
 
 def create_scan_record(project_id: str, repo_name: str, installation_id: int) -> str:
     """Create a scan record and return scan_id."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     try:
         result = supabase.table("scans").insert({
             "project_id": project_id,
@@ -342,6 +456,8 @@ def create_scan_record(project_id: str, repo_name: str, installation_id: int) ->
 
 def update_scan_success(scan_id: str, duration_ms: int, total_files: int, analyzed_files: int):
     """Update scan record on success."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     try:
         supabase.table("scans").update({
             "status": "completed",
@@ -358,6 +474,8 @@ def update_scan_success(scan_id: str, duration_ms: int, total_files: int, analyz
 
 def update_scan_failure(scan_id: str, duration_ms: int, error_msg: str):
     """Update scan record on failure."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     try:
         supabase.table("scans").update({
             "status": "failed",
@@ -372,6 +490,8 @@ def update_scan_failure(scan_id: str, duration_ms: int, error_msg: str):
 
 def update_project_last_scan(project_id: str):
     """Update project's last_scan_at timestamp."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     try:
         supabase.table("projects").update({
             "last_scan_at": datetime.utcnow().isoformat() + "Z",
@@ -384,6 +504,8 @@ def update_project_last_scan(project_id: str):
 
 def insert_findings(scan_id: str, project_id: str, findings: List[Finding]):
     """Insert findings with deduplication by fingerprint."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     if not findings:
         logger.info("No findings to insert")
         return
@@ -487,6 +609,11 @@ def insert_findings(scan_id: str, project_id: str, findings: List[Finding]):
 # ----------------------------
 # Routes
 # ----------------------------
+@app.options("/{path:path}")
+async def options_preflight(path: str):
+    return Response(status_code=204)
+
+
 @app.post("/scan-repo", response_model=ScanResponse)
 async def scan_repo(request: ScanRepoRequest):
     scan_id: Optional[str] = None
@@ -498,53 +625,70 @@ async def scan_repo(request: ScanRepoRequest):
         if "/" not in request.repo_name:
             raise HTTPException(status_code=400, detail="repo_name must be in format 'owner/repo'")
 
-        # Create scan record
-        scan_id = create_scan_record(
-            project_id=request.project_id,
-            repo_name=request.repo_name,
-            installation_id=request.installation_id
-        )
+        # Create scan record (only if Supabase is configured)
+        if supabase:
+            try:
+                scan_id = create_scan_record(
+                    project_id=request.project_id,
+                    repo_name=request.repo_name,
+                    installation_id=request.installation_id
+                )
+                logger.info("Created scan record: scan_id=%s", scan_id)
+            except Exception as e:
+                logger.warning("Failed to create scan record (continuing without persistence): %s", e)
+                scan_id = None
+        else:
+            logger.warning("Supabase not configured: scan will not be persisted")
+            scan_id = None
 
         max_files = request.max_files or MAX_FILES
 
+        logger.info("Fetching GitHub client for installation_id=%d", request.installation_id)
         github_client = get_github_client(request.installation_id)
+        
         try:
+            logger.info("Fetching repository: %s", request.repo_name)
             repo = github_client.get_repo(request.repo_name)
+            logger.info("Repository fetched successfully")
         except Exception as e:
-            duration_ms = int((time.time() - start_time) * 1000)
-            update_scan_failure(scan_id, duration_ms, f"Repo not accessible: {e}")
+            if scan_id and supabase:
+                duration_ms = int((time.time() - start_time) * 1000)
+                try:
+                    update_scan_failure(scan_id, duration_ms, f"Repo not accessible: {e}")
+                except Exception:
+                    pass
             raise HTTPException(status_code=404, detail=f"Repo not accessible: {e}")
 
-        # Collect all file paths (MVP approach)
-        all_files: List[str] = []
+        # List all files
+        logger.info("Listing repository files (max_files=%d)", max_files)
         try:
-            contents = repo.get_contents("")
-            while contents and len(all_files) < max_files * 5:
-                item = contents.pop(0)
-                if should_skip_path(item.path):
-                    continue
-                if item.type == "file":
-                    all_files.append(item.path)
-                elif item.type == "dir":
-                    contents.extend(repo.get_contents(item.path))
+            all_files = list_repo_files(repo, max_files)
         except Exception as e:
-            duration_ms = int((time.time() - start_time) * 1000)
-            update_scan_failure(scan_id, duration_ms, f"Failed to fetch repo contents: {e}")
+            if scan_id and supabase:
+                duration_ms = int((time.time() - start_time) * 1000)
+                try:
+                    update_scan_failure(scan_id, duration_ms, f"Failed to fetch repo contents: {e}")
+                except Exception:
+                    pass
             raise HTTPException(status_code=500, detail=f"Failed to fetch repo contents: {e}")
 
+        # Filter to text files
         text_files = [p for p in all_files if is_text_file(p) and not should_skip_path(p)]
         text_files = text_files[:max_files]
         
-        logger.info("Files to analyze: total=%d, text=%d", len(all_files), len(text_files))
+        logger.info("Files to analyze: total=%d, text=%d, will analyze=%d", 
+                   len(all_files), len(text_files), min(len(text_files), max_files))
 
         findings: List[Finding] = []
+        files_processed = 0
+        files_failed = 0
 
         for file_path in text_files:
             try:
-                file_obj = repo.get_contents(file_path)
-
-                # skip large blobs
-                if getattr(file_obj, "size", 0) and file_obj.size > MAX_FILE_BYTES:
+                content = read_repo_file(repo, file_path)
+                
+                if content is None:
+                    # File was skipped due to size
                     findings.append(
                         Finding(
                             id=str(uuid.uuid4()),
@@ -552,7 +696,7 @@ async def scan_repo(request: ScanRepoRequest):
                             severity="info",
                             confidence=1.0,
                             summary=f"Skipped {file_path} because it exceeds size limit.",
-                            details=f"Size: {file_obj.size} bytes. Limit: {MAX_FILE_BYTES} bytes.",
+                            details=f"Limit: {MAX_FILE_BYTES} bytes.",
                             evidence=[Evidence(file=file_path)],
                             recommendation="Increase MAX_FILE_BYTES if you want to scan large files.",
                             category="other",
@@ -560,14 +704,17 @@ async def scan_repo(request: ScanRepoRequest):
                     )
                     continue
 
-                content = file_obj.decoded_content.decode("utf-8", errors="ignore")
-                content = truncate_for_llm(content)
-
+                logger.debug("Analyzing file: %s", file_path)
                 file_findings = await analyze_file_with_llm(file_path, content)
                 findings.extend(file_findings)
+                files_processed += 1
+                
+                if len(file_findings) > 0:
+                    logger.debug("Found %d issues in %s", len(file_findings), file_path)
 
             except Exception as e:
-                logger.exception("Failed processing file %s", file_path)
+                files_failed += 1
+                logger.warning("Failed processing file %s: %s", file_path, str(e)[:200])
                 findings.append(
                     Finding(
                         id=str(uuid.uuid4()),
@@ -575,30 +722,42 @@ async def scan_repo(request: ScanRepoRequest):
                         severity="info",
                         confidence=0.6,
                         summary=f"Could not analyze {file_path}.",
-                        details=str(e),
+                        details=str(e)[:1000],
                         evidence=[Evidence(file=file_path)],
                         recommendation="Check repository permissions and file encoding.",
                         category="other",
                     )
                 )
+        
+        logger.info("File analysis complete: processed=%d, failed=%d, findings=%d", 
+                   files_processed, files_failed, len(findings))
 
         # Insert findings into database
-        logger.info("Inserting findings: count=%d", len(findings))
-        insert_findings(scan_id=scan_id, project_id=request.project_id, findings=findings)
+        if supabase:
+            logger.info("Inserting findings into database: count=%d", len(findings))
+            try:
+                insert_findings(scan_id=scan_id, project_id=request.project_id, findings=findings)
+            except Exception as e:
+                logger.error("Failed to insert findings (non-fatal): %s", e)
+        else:
+            logger.warning("Skipping findings persistence: Supabase not configured")
 
         # Update scan record on success
         duration_ms = int((time.time() - start_time) * 1000)
-        update_scan_success(
-            scan_id=scan_id,
-            duration_ms=duration_ms,
-            total_files=len(all_files),
-            analyzed_files=len(text_files)
-        )
+        if supabase:
+            try:
+                update_scan_success(
+                    scan_id=scan_id,
+                    duration_ms=duration_ms,
+                    total_files=len(all_files),
+                    analyzed_files=len(text_files)
+                )
+                update_project_last_scan(request.project_id)
+            except Exception as e:
+                logger.error("Failed to update scan status (non-fatal): %s", e)
 
-        # Update project last_scan_at
-        update_project_last_scan(request.project_id)
-
-        logger.info("Scan completed successfully: scan_id=%s, findings=%d", scan_id, len(findings))
+        logger.info("Scan completed successfully: scan_id=%s, duration_ms=%d, findings=%d", 
+                   scan_id, duration_ms, len(findings))
 
         return ScanResponse(
             success=True,
@@ -610,17 +769,28 @@ async def scan_repo(request: ScanRepoRequest):
 
     except HTTPException:
         # HTTPExceptions are already properly formatted, but update scan status
-        if scan_id:
+        if scan_id and supabase:
             duration_ms = int((time.time() - start_time) * 1000)
-            update_scan_failure(scan_id, duration_ms, "HTTP error occurred")
+            try:
+                update_scan_failure(scan_id, duration_ms, "HTTP error occurred")
+            except Exception:
+                pass
         raise
     except Exception as e:
         logger.exception("scan_repo crashed")
-        if scan_id:
+        if scan_id and supabase:
             duration_ms = int((time.time() - start_time) * 1000)
-            error_msg = f"Server error: {str(e)}"
-            update_scan_failure(scan_id, duration_ms, error_msg)
+            error_msg = f"Server error: {str(e)[:500]}"
+            try:
+                update_scan_failure(scan_id, duration_ms, error_msg)
+            except Exception:
+                pass
         raise HTTPException(status_code=500, detail=f"Server error: {e}")
+
+
+@app.get("/")
+async def root():
+    return {"message": "Repository Scanner API is running", "docs_url": "/docs"}
 
 
 @app.get("/health")
