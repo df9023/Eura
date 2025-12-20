@@ -43,7 +43,11 @@ SKIP_DIRS = {
 }
 
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "")
-allow_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
+if ALLOWED_ORIGINS:
+    allow_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
+else:
+    allow_origins = ["*"]
+logger.info("CORS: Allowed origins configured as: %s", allow_origins)
 
 if not GITHUB_APP_ID or not GITHUB_PRIVATE_KEY:
     raise ValueError("GITHUB_APP_ID and GITHUB_PRIVATE_KEY must be set")
@@ -118,9 +122,9 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allow_origins or ["*"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_origins=allow_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=86400,
@@ -782,6 +786,11 @@ async def scan_repo(request: ScanRepoRequest):
             except Exception:
                 pass
         raise HTTPException(status_code=500, detail=f"Server error: {e}")
+
+
+@app.get("/")
+async def root():
+    return {"message": "Repository Scanner API is running", "docs_url": "/docs"}
 
 
 @app.get("/health")
