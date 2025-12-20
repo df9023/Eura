@@ -76,7 +76,7 @@ except Exception as e:
 # API Models
 # ----------------------------
 class ScanRepoRequest(BaseModel):
-    project_id: str = Field(..., description="UUID of the project")
+    project_id: Optional[str] = Field(None, description="Optional UUID. If None, scan is not saved.")
     repo_name: str = Field(..., description="Format: owner/repo")
     installation_id: int
     max_files: Optional[int] = Field(None, description="Override MAX_FILES for this scan")
@@ -625,8 +625,8 @@ async def scan_repo(request: ScanRepoRequest):
         if "/" not in request.repo_name:
             raise HTTPException(status_code=400, detail="repo_name must be in format 'owner/repo'")
 
-        # Create scan record (only if Supabase is configured)
-        if supabase:
+        # Create scan record (only if project_id is provided and Supabase is configured)
+        if request.project_id and supabase:
             try:
                 scan_id = create_scan_record(
                     project_id=request.project_id,
@@ -638,7 +638,10 @@ async def scan_repo(request: ScanRepoRequest):
                 logger.warning("Failed to create scan record (continuing without persistence): %s", e)
                 scan_id = None
         else:
-            logger.warning("Supabase not configured: scan will not be persisted")
+            if not request.project_id:
+                logger.info("Ephemeral scan: project_id not provided, scan will not be persisted")
+            elif not supabase:
+                logger.warning("Supabase not configured: scan will not be persisted")
             scan_id = None
 
         max_files = request.max_files or MAX_FILES
@@ -651,7 +654,7 @@ async def scan_repo(request: ScanRepoRequest):
             repo = github_client.get_repo(request.repo_name)
             logger.info("Repository fetched successfully")
         except Exception as e:
-            if scan_id and supabase:
+            if request.project_id and scan_id and supabase:
                 duration_ms = int((time.time() - start_time) * 1000)
                 try:
                     update_scan_failure(scan_id, duration_ms, f"Repo not accessible: {e}")
@@ -664,7 +667,7 @@ async def scan_repo(request: ScanRepoRequest):
         try:
             all_files = list_repo_files(repo, max_files)
         except Exception as e:
-            if scan_id and supabase:
+            if request.project_id and scan_id and supabase:
                 duration_ms = int((time.time() - start_time) * 1000)
                 try:
                     update_scan_failure(scan_id, duration_ms, f"Failed to fetch repo contents: {e}")
@@ -732,19 +735,22 @@ async def scan_repo(request: ScanRepoRequest):
         logger.info("File analysis complete: processed=%d, failed=%d, findings=%d", 
                    files_processed, files_failed, len(findings))
 
-        # Insert findings into database
-        if supabase:
+        # Insert findings into database (only if project_id is provided and Supabase is configured)
+        if request.project_id and supabase:
             logger.info("Inserting findings into database: count=%d", len(findings))
             try:
                 insert_findings(scan_id=scan_id, project_id=request.project_id, findings=findings)
             except Exception as e:
                 logger.error("Failed to insert findings (non-fatal): %s", e)
         else:
-            logger.warning("Skipping findings persistence: Supabase not configured")
+            if not request.project_id:
+                logger.info("Ephemeral scan: skipping findings persistence (no project_id)")
+            else:
+                logger.warning("Skipping findings persistence: Supabase not configured")
 
-        # Update scan record on success
+        # Update scan record on success (only if project_id is provided and Supabase is configured)
         duration_ms = int((time.time() - start_time) * 1000)
-        if supabase:
+        if request.project_id and supabase:
             try:
                 update_scan_success(
                     scan_id=scan_id,
@@ -756,8 +762,12 @@ async def scan_repo(request: ScanRepoRequest):
             except Exception as e:
                 logger.error("Failed to update scan status (non-fatal): %s", e)
 
-        logger.info("Scan completed successfully: scan_id=%s, duration_ms=%d, findings=%d", 
-                   scan_id, duration_ms, len(findings))
+        if request.project_id:
+            logger.info("Scan completed successfully: scan_id=%s, duration_ms=%d, findings=%d", 
+                       scan_id, duration_ms, len(findings))
+        else:
+            logger.info("Ephemeral scan completed successfully: duration_ms=%d, findings=%d", 
+                       duration_ms, len(findings))
 
         return ScanResponse(
             success=True,
