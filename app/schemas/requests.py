@@ -4,6 +4,14 @@ from pydantic import BaseModel, Field
 from app.models.domain import Finding
 
 
+class Dependency(BaseModel):
+    """A dependency extracted from a manifest file."""
+    name: str
+    version: str
+    type: str  # e.g., "python", "node", "poetry"
+    file_source: str
+
+
 class ScanRepoRequest(BaseModel):
     """Request schema for scanning a repository."""
     project_id: Optional[str] = Field(None, description="Optional UUID. If None, scan is not saved.")
@@ -19,4 +27,6 @@ class ScanResponse(BaseModel):
     total_files: int
     analyzed_files: int
     findings: List[Finding]
+    commit_hash: Optional[str] = None
+    dependencies: List[Dependency] = []
 

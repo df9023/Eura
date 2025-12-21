@@ -134,3 +134,17 @@ def read_repo_file(repo: any, file_path: str) -> Optional[str]:
         logger.warning("Failed to read file %s: %s", file_path, str(e)[:200])
         raise
 
+
+def get_repo_commit_hash(repo: any) -> Optional[str]:
+    """Get the current commit SHA (HEAD) from the repository."""
+    try:
+        # Get the default branch (usually 'main' or 'master')
+        default_branch = repo.default_branch
+        branch = repo.get_branch(default_branch)
+        commit_sha = branch.commit.sha
+        logger.debug("Repository commit SHA: %s", commit_sha)
+        return commit_sha
+    except Exception as e:
+        logger.warning("Failed to get commit hash: %s", str(e)[:200])
+        return None
+

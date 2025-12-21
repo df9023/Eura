@@ -14,14 +14,18 @@ from app.services.github import (
     read_repo_file,
     is_text_file,
     should_skip_path,
+    get_repo_commit_hash,
 )
 from app.services.llm import analyze_file_with_llm
+from app.services.dependencies import extract_dependencies
+from app.schemas.requests import Dependency
 from app.services.database import (
     create_scan_record,
     update_scan_success,
     update_scan_failure,
     update_project_last_scan,
     insert_findings,
+    bulk_insert_dependencies,
 )
 
 router = APIRouter()
@@ -45,25 +49,6 @@ async def scan_repo(request: ScanRepoRequest):
         if "/" not in request.repo_name:
             raise HTTPException(status_code=400, detail="repo_name must be in format 'owner/repo'")
 
-        # Create scan record (only if project_id is provided and Supabase is configured)
-        if request.project_id and supabase:
-            try:
-                scan_id = create_scan_record(
-                    project_id=request.project_id,
-                    repo_name=request.repo_name,
-                    installation_id=request.installation_id
-                )
-                logger.info("Created scan record: scan_id=%s", scan_id)
-            except Exception as e:
-                logger.warning("Failed to create scan record (continuing without persistence): %s", e)
-                scan_id = None
-        else:
-            if not request.project_id:
-                logger.info("Ephemeral scan: project_id not provided, scan will not be persisted")
-            elif not supabase:
-                logger.warning("Supabase not configured: scan will not be persisted")
-            scan_id = None
-
         max_files = request.max_files or MAX_FILES
 
         logger.info("Fetching GitHub client for installation_id=%d", request.installation_id)
@@ -81,6 +66,33 @@ async def scan_repo(request: ScanRepoRequest):
                 except Exception:
                     pass
             raise HTTPException(status_code=404, detail=f"Repo not accessible: {e}")
+
+        # Get commit hash (HEAD)
+        commit_hash = get_repo_commit_hash(repo)
+        if commit_hash:
+            logger.info("Repository commit hash: %s", commit_hash)
+        else:
+            logger.warning("Could not determine commit hash")
+
+        # Create scan record (only if project_id is provided and Supabase is configured)
+        if request.project_id and supabase:
+            try:
+                scan_id = create_scan_record(
+                    project_id=request.project_id,
+                    repo_name=request.repo_name,
+                    installation_id=request.installation_id,
+                    commit_hash=commit_hash
+                )
+                logger.info("Created scan record: scan_id=%s", scan_id)
+            except Exception as e:
+                logger.warning("Failed to create scan record (continuing without persistence): %s", e)
+                scan_id = None
+        else:
+            if not request.project_id:
+                logger.info("Ephemeral scan: project_id not provided, scan will not be persisted")
+            elif not supabase:
+                logger.warning("Supabase not configured: scan will not be persisted")
+            scan_id = None
 
         # List all files
         logger.info("Listing repository files (max_files=%d)", max_files)
@@ -103,6 +115,7 @@ async def scan_repo(request: ScanRepoRequest):
                    len(all_files), len(text_files), min(len(text_files), max_files))
 
         findings: List[Finding] = []
+        dependencies: List[Dependency] = []
         files_processed = 0
         files_failed = 0
 
@@ -126,6 +139,29 @@ async def scan_repo(request: ScanRepoRequest):
                         )
                     )
                     continue
+
+                # Check if this is a dependency manifest file
+                file_lower = file_path.lower()
+                if any(file_lower.endswith(manifest) for manifest in ["requirements.txt", "package.json", "pyproject.toml"]):
+                    logger.debug("Extracting dependencies from: %s", file_path)
+                    try:
+                        deps = extract_dependencies(file_path, content)
+                        dep_objects = [Dependency(**dep) for dep in deps]
+                        dependencies.extend(dep_objects)
+                        
+                        # Save dependencies immediately (even if LLM scan fails later)
+                        if request.project_id and supabase and scan_id and dep_objects:
+                            try:
+                                bulk_insert_dependencies(
+                                    scan_id=scan_id,
+                                    project_id=request.project_id,
+                                    dependencies=dep_objects
+                                )
+                                logger.debug("Saved %d dependencies from %s", len(dep_objects), file_path)
+                            except Exception as e:
+                                logger.warning("Failed to save dependencies from %s (non-fatal): %s", file_path, str(e)[:200])
+                    except Exception as e:
+                        logger.warning("Failed to extract dependencies from %s: %s", file_path, str(e)[:200])
 
                 logger.debug("Analyzing file: %s", file_path)
                 file_findings = await analyze_file_with_llm(file_path, content)
@@ -152,8 +188,8 @@ async def scan_repo(request: ScanRepoRequest):
                     )
                 )
         
-        logger.info("File analysis complete: processed=%d, failed=%d, findings=%d", 
-                   files_processed, files_failed, len(findings))
+        logger.info("File analysis complete: processed=%d, failed=%d, findings=%d, dependencies=%d", 
+                   files_processed, files_failed, len(findings), len(dependencies))
 
         # Insert findings into database (only if project_id is provided and Supabase is configured)
         if request.project_id and supabase:
@@ -176,7 +212,8 @@ async def scan_repo(request: ScanRepoRequest):
                     scan_id=scan_id,
                     duration_ms=duration_ms,
                     total_files=len(all_files),
-                    analyzed_files=len(text_files)
+                    analyzed_files=len(text_files),
+                    commit_hash=commit_hash
                 )
                 update_project_last_scan(request.project_id)
             except Exception as e:
@@ -195,6 +232,8 @@ async def scan_repo(request: ScanRepoRequest):
             total_files=len(all_files),
             analyzed_files=len(text_files),
             findings=findings,
+            commit_hash=commit_hash,
+            dependencies=dependencies,
         )
 
     except HTTPException:

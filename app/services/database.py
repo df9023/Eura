@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.core.config import supabase
 from app.core.logger import logger
 from app.models.domain import Finding, Evidence
+from app.schemas.requests import Dependency
 
 
 def generate_fingerprint(project_id: str, vuln_category: str, title: str, evidence: List[Evidence]) -> str:
@@ -29,17 +30,21 @@ def parse_line_number(lines_str: Optional[str]) -> Optional[int]:
         return None
 
 
-def create_scan_record(project_id: str, repo_name: str, installation_id: int) -> str:
+def create_scan_record(project_id: str, repo_name: str, installation_id: int, commit_hash: Optional[str] = None) -> str:
     """Create a scan record and return scan_id."""
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not configured")
     try:
-        result = supabase.table("scans").insert({
+        record_data = {
             "project_id": project_id,
             "status": "processing",
             "repo_name": repo_name,
             "installation_id": installation_id,
-        }).execute()
+        }
+        if commit_hash:
+            record_data["commit_hash"] = commit_hash
+        
+        result = supabase.table("scans").insert(record_data).execute()
         
         if not result.data or len(result.data) == 0:
             raise ValueError("Failed to create scan record")
@@ -52,18 +57,22 @@ def create_scan_record(project_id: str, repo_name: str, installation_id: int) ->
         raise
 
 
-def update_scan_success(scan_id: str, duration_ms: int, total_files: int, analyzed_files: int):
+def update_scan_success(scan_id: str, duration_ms: int, total_files: int, analyzed_files: int, commit_hash: Optional[str] = None):
     """Update scan record on success."""
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not configured")
     try:
-        supabase.table("scans").update({
+        update_data = {
             "status": "completed",
             "duration_ms": duration_ms,
             "total_files": total_files,
             "analyzed_files": analyzed_files,
             "error": None,
-        }).eq("id", scan_id).execute()
+        }
+        if commit_hash:
+            update_data["commit_hash"] = commit_hash
+        
+        supabase.table("scans").update(update_data).eq("id", scan_id).execute()
         logger.info("Updated scan success: scan_id=%s, duration_ms=%d", scan_id, duration_ms)
     except Exception as e:
         logger.error("Failed to update scan success: %s", e)
@@ -201,4 +210,47 @@ def insert_findings(scan_id: str, project_id: str, findings: List[Finding]):
             logger.warning("Duplicate findings detected (constraint violation), continuing")
         else:
             raise
+
+
+def bulk_insert_dependencies(scan_id: str, project_id: str, dependencies: List[Dependency]):
+    """Insert dependencies into scan_dependencies table."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    if not dependencies:
+        logger.info("No dependencies to insert")
+        return
+    
+    try:
+        # Transform Dependency objects to database format
+        insert_data = []
+        for dep in dependencies:
+            insert_data.append({
+                "scan_id": scan_id,
+                "project_id": project_id,
+                "name": dep.name,
+                "version": dep.version,
+                "type": dep.type,
+                "file_source": dep.file_source,
+            })
+        
+        # Bulk insert
+        batch_size = 100
+        total_inserted = 0
+        
+        for i in range(0, len(insert_data), batch_size):
+            batch = insert_data[i:i + batch_size]
+            result = supabase.table("scan_dependencies").insert(batch).execute()
+            inserted_count = len(result.data) if result.data else 0
+            total_inserted += inserted_count
+            logger.info("Inserted dependency batch: %d dependencies", inserted_count)
+        
+        logger.info("Inserted dependencies: total=%d", total_inserted)
+    except Exception as e:
+        logger.error("Failed to insert dependencies: %s", e)
+        # Check if it's a duplicate constraint error
+        if "duplicate" in str(e).lower() or "unique" in str(e).lower():
+            logger.warning("Duplicate dependencies detected (constraint violation), continuing")
+        else:
+            # Don't raise - dependencies are important but not critical to scan success
+            logger.warning("Continuing despite dependency insert failure")
 
