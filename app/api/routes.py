@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from starlette.responses import Response
 from app.core.config import MAX_FILES, MAX_FILE_BYTES, supabase
 from app.core.logger import logger
-from app.schemas.requests import ScanRepoRequest, ScanResponse
+from app.schemas.requests import ScanRepoRequest, ScanResponse, ComplianceReport, RuleResult
 from app.models.domain import Finding, Evidence
 from app.services.github import (
     get_github_client,
@@ -18,6 +18,7 @@ from app.services.github import (
 )
 from app.services.llm import analyze_file_with_llm
 from app.services.dependencies import extract_dependencies
+from app.services.compliance import evaluate_repo
 from app.schemas.requests import Dependency
 from app.services.database import (
     create_scan_record,
@@ -226,6 +227,36 @@ async def scan_repo(request: ScanRepoRequest):
             logger.info("Ephemeral scan completed successfully: duration_ms=%d, findings=%d", 
                        duration_ms, len(findings))
 
+        # Evaluate compliance rules
+        compliance_report = None
+        try:
+            logger.info("Evaluating compliance rules...")
+            compliance_report_dict = await evaluate_repo(
+                findings=findings,
+                dependencies=dependencies,
+                repo_files=all_files,  # Use all_files to check for documentation files
+                repo=repo,
+                read_file_func=read_repo_file
+            )
+            # Convert to Pydantic model
+            compliance_report = ComplianceReport(
+                rule_results=[
+                    RuleResult(**result) for result in compliance_report_dict["rule_results"]
+                ],
+                evaluated_at=compliance_report_dict["evaluated_at"],
+                total_rules=compliance_report_dict["total_rules"],
+                passed=compliance_report_dict["passed"],
+                failed=compliance_report_dict["failed"],
+                unknown=compliance_report_dict["unknown"],
+                not_applicable=compliance_report_dict["not_applicable"]
+            )
+            logger.info("Compliance evaluation complete: passed=%d, failed=%d, unknown=%d, not_applicable=%d",
+                       compliance_report.passed, compliance_report.failed, 
+                       compliance_report.unknown, compliance_report.not_applicable)
+        except Exception as e:
+            logger.error("Failed to evaluate compliance rules (non-fatal): %s", str(e)[:200])
+            # Continue without compliance report if evaluation fails
+
         return ScanResponse(
             success=True,
             repo_name=request.repo_name,
@@ -234,6 +265,7 @@ async def scan_repo(request: ScanRepoRequest):
             findings=findings,
             commit_hash=commit_hash,
             dependencies=dependencies,
+            compliance_report=compliance_report,
         )
 
     except HTTPException:

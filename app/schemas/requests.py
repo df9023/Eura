@@ -1,5 +1,5 @@
 """API request and response schemas."""
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
 from app.models.domain import Finding
 
@@ -10,6 +10,26 @@ class Dependency(BaseModel):
     version: str
     type: str  # e.g., "python", "node", "poetry"
     file_source: str
+
+
+class RuleResult(BaseModel):
+    """Result of evaluating a single compliance rule."""
+    rule_id: str
+    status: Literal["PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE"]
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    reason: Optional[str] = None
+    evaluated_at: str
+
+
+class ComplianceReport(BaseModel):
+    """Compliance evaluation report for CRA rules."""
+    rule_results: List[RuleResult]
+    evaluated_at: str
+    total_rules: int
+    passed: int
+    failed: int
+    unknown: int
+    not_applicable: int
 
 
 class ScanRepoRequest(BaseModel):
@@ -29,4 +49,5 @@ class ScanResponse(BaseModel):
     findings: List[Finding]
     commit_hash: Optional[str] = None
     dependencies: List[Dependency] = []
+    compliance_report: Optional[ComplianceReport] = None
 

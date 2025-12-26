@@ -1,0 +1,1222 @@
+================================================================================
+EURA CRA RULE PACK v0.1
+EU Cyber Resilience Act - Compliance Rules for Repository Scanning
+================================================================================
+
+HOW EURA INTERPRETS CRA
+================================================================================
+
+The EU Cyber Resilience Act (CRA) mandates that products with digital elements
+must be secure-by-design, handle vulnerabilities responsibly, and maintain
+security throughout their lifecycle. EURA translates these legal requirements
+into testable rules that can be evaluated by scanning a software repository.
+
+Key CRA principles EURA checks:
+- Secure-by-design: Default configurations should be secure, dependencies
+  should be up-to-date, and security should be considered from the start.
+- Vulnerability handling: Products must have processes for receiving,
+  assessing, and addressing security vulnerabilities.
+- Documentation: Security policies, update procedures, and user guidance
+  must be documented.
+- Lifecycle management: Products must be maintained and updated throughout
+  their lifecycle.
+- SBOM and transparency: Dependencies should be tracked and disclosed.
+
+EURA's approach:
+- We focus on what can be automatically detected from repository structure,
+  files, and metadata.
+- We explicitly mark rules as UNKNOWN when evidence is insufficient, rather
+  than guessing.
+- We provide remediation guidance that scales from MVP to mature compliance.
+- We acknowledge that some CRA requirements need human attestation and
+  cannot be fully automated.
+
+Limitations:
+- EURA cannot verify that processes are actually followed (only that
+  documentation exists).
+- EURA cannot assess the quality of security practices, only their presence.
+- Some CRA requirements (like incident reporting procedures) require
+  organizational policies beyond what's in a repo.
+- EURA evaluates the repository state at a point in time, not historical
+  compliance.
+
+================================================================================
+RULES
+================================================================================
+
+RULE CRA-BASE-001: Security Policy Documentation
+================================================================================
+
+What it means:
+Your repository should have a SECURITY.md file (or equivalent) that explains
+how users can report security vulnerabilities. This demonstrates commitment to
+coordinated vulnerability disclosure, which CRA requires.
+
+When it applies:
+- Applies to all repositories that represent a product with digital elements.
+- Not applicable if the repo is purely documentation, examples, or
+  experimental code.
+
+What EURA can check automatically:
+- Signal: has_security_policy (boolean)
+- Expected files: SECURITY.md, .github/SECURITY.md, docs/SECURITY.md,
+  security.md (case-insensitive)
+- EURA checks file presence and can optionally validate that the file
+  contains keywords like "vulnerability", "report", "security"
+
+What EURA cannot know:
+- Whether the security policy is actually followed in practice.
+- Whether the contact information in the policy is monitored.
+- Whether the policy meets all CRA disclosure requirements (needs legal
+  review).
+
+Typical false positives / edge cases:
+- False positive: Repo has security policy in a non-standard location
+  (EURA may not find it).
+- Edge case: Security policy exists but is empty or placeholder text.
+- Edge case: Policy exists in a private repository (EURA can't access it).
+
+Remediation steps:
+
+MVP level:
+1. Create SECURITY.md in repository root.
+2. Include: contact email for security issues, expected response time,
+   scope of what should be reported.
+3. Template:
+   ```
+   # Security Policy
+   
+   ## Reporting a Vulnerability
+   
+   Please email security@example.com with details. We aim to respond
+   within 48 hours.
+   ```
+
+Mature level:
+1. Add security policy to .github/SECURITY.md for GitHub-native workflow.
+2. Include: disclosure timeline, acknowledgment policy, scope definition.
+3. Link to security policy from README.md.
+4. Consider using GitHub's security advisory feature.
+
+Suggested evidence artifacts:
+- SECURITY.md (root or .github/)
+- README.md (with link to security policy)
+- docs/security.md (alternative location)
+
+References: CRA Article 10(1) - Security requirements
+
+================================================================================
+
+RULE CRA-BASE-002: Dependency Inventory (SBOM)
+================================================================================
+
+What it means:
+You must maintain an inventory of all dependencies (Software Bill of
+Materials). CRA requires transparency about what components are in your
+product. Lockfiles and manifest files serve as a basic SBOM.
+
+When it applies:
+- Applies if the repository uses dependencies (has package.json, requirements.txt,
+  pyproject.toml, Gemfile, etc.).
+- Not applicable if the repo has zero dependencies (pure code, no packages).
+
+What EURA can check automatically:
+- Signal: dependency_count (integer), has_lockfile (boolean)
+- Expected files: requirements.txt, package.json, pyproject.toml, Gemfile,
+  Cargo.toml, go.mod, etc.
+- Lockfiles: package-lock.json, Pipfile.lock, poetry.lock, Gemfile.lock,
+  Cargo.lock, go.sum
+- EURA extracts dependency names and versions from manifest files.
+
+What EURA cannot know:
+- Whether dependencies are actually used in production (some may be dev-only).
+- Whether the lockfile is kept in sync with manifest files.
+- Whether the SBOM is complete (some dependencies may be transitive and
+  not explicitly listed).
+
+Typical false positives / edge cases:
+- False positive: Repo uses dependencies but doesn't commit lockfiles
+  (common in some ecosystems like Python without poetry).
+- Edge case: Lockfile exists but is outdated (EURA can't verify freshness).
+- Edge case: Dependencies are managed outside the repo (monorepo, external
+  package manager).
+
+Remediation steps:
+
+MVP level:
+1. Commit lockfiles to version control (package-lock.json, Pipfile.lock, etc.).
+2. Ensure manifest files (package.json, requirements.txt) are present and
+   up-to-date.
+3. Document dependency management process in README.
+
+Mature level:
+1. Generate formal SBOM using tools like CycloneDX or SPDX.
+2. Include SBOM in release artifacts.
+3. Automate SBOM generation in CI/CD.
+4. Track transitive dependencies explicitly.
+5. Maintain SBOM version history.
+
+Suggested evidence artifacts:
+- package-lock.json, yarn.lock, Pipfile.lock, poetry.lock, etc.
+- requirements.txt, package.json, pyproject.toml (with pinned versions)
+- .github/workflows/sbom.yml (CI/CD that generates SBOM)
+- docs/dependencies.md (documentation of dependency policy)
+
+References: CRA Article 10(2) - Transparency requirements
+
+================================================================================
+
+RULE CRA-BASE-003: Dependency Vulnerability Management
+================================================================================
+
+What it means:
+You must actively manage known vulnerabilities in dependencies. CRA requires
+that products address security issues promptly. Having vulnerable
+dependencies is a compliance risk.
+
+When it applies:
+- Applies if the repository has dependencies (see CRA-BASE-002).
+- Not applicable if dependency_count = 0.
+
+What EURA can check automatically:
+- Signal: vulnerable_dependency_count (integer)
+- EURA can check dependencies against vulnerability databases (if integrated).
+- EURA can detect outdated dependencies by comparing versions to latest
+  available.
+
+What EURA cannot know:
+- Whether vulnerabilities are actually exploitable in your specific use case.
+- Whether you have mitigations in place (workarounds, network controls).
+- Whether you're actively working on updates (in progress, not yet merged).
+
+Typical false positives / edge cases:
+- False positive: Vulnerability exists but is in dev-only dependency that
+  never runs in production.
+- Edge case: Vulnerability is low-severity and you've assessed it as
+  acceptable risk.
+- Edge case: Update is available but breaks compatibility (requires
+  migration work).
+
+Remediation steps:
+
+MVP level:
+1. Regularly run dependency vulnerability scanners (npm audit, pip-audit,
+   bundler audit, etc.).
+2. Update dependencies with known vulnerabilities within 30 days for
+   critical/high severity.
+3. Document exceptions if updates are delayed for valid reasons.
+
+Mature level:
+1. Integrate vulnerability scanning into CI/CD pipeline.
+2. Use Dependabot, Renovate, or similar automated dependency updates.
+3. Maintain a vulnerability management policy document.
+4. Track vulnerability lifecycle: discovered → assessed → patched → verified.
+5. Set up alerts for new vulnerabilities in your dependency set.
+
+Suggested evidence artifacts:
+- .github/dependabot.yml (automated dependency updates)
+- .github/workflows/security-scan.yml (vulnerability scanning in CI)
+- docs/vulnerability-management.md (policy document)
+- CHANGELOG.md (documenting security updates)
+
+References: CRA Article 11 - Vulnerability handling
+
+================================================================================
+
+RULE CRA-BASE-004: Secure Default Configuration
+================================================================================
+
+What it means:
+Products should be secure-by-default. Default settings should not expose
+unnecessary attack surface. This includes: no default passwords, secure
+connection settings enabled by default, minimal permissions, etc.
+
+When it applies:
+- Applies if the repository contains configuration files, Dockerfiles, or
+  deployment configs.
+- Strongly applies if the repo has has_dockerfile = true or has_cicd_config = true.
+
+What EURA can check automatically:
+- Signal: has_default_security_config (boolean)
+- EURA scans Dockerfiles for insecure defaults (root user, exposed ports,
+  no health checks).
+- EURA checks config files for hardcoded secrets, default credentials,
+  insecure protocols.
+- EURA looks for security headers in web configs.
+
+What EURA cannot know:
+- Whether insecure defaults are documented as "change before production".
+- Whether the application enforces secure configs at runtime regardless of
+  file settings.
+- Whether defaults are appropriate for the specific use case.
+
+Typical false positives / edge cases:
+- False positive: Config file has example/default values that are clearly
+  marked as "CHANGE_ME" placeholders.
+- Edge case: Defaults are insecure by design for development, but production
+  uses different configs (not in repo).
+- Edge case: Security is enforced by infrastructure, not application config.
+
+Remediation steps:
+
+MVP level:
+1. Remove or comment out any default passwords, API keys, or secrets in
+   config files.
+2. Use environment variables for sensitive configuration.
+3. Add .env.example file with placeholder values (never commit .env).
+4. Document required environment variables in README.
+
+Mature level:
+1. Use secrets management (AWS Secrets Manager, HashiCorp Vault, etc.).
+2. Implement configuration validation that rejects insecure defaults.
+3. Use infrastructure-as-code to enforce secure defaults.
+4. Add security scanning to CI/CD that flags insecure configs.
+5. Document security configuration requirements.
+
+Suggested evidence artifacts:
+- .env.example (template with placeholders)
+- config/security.example.yml (secure default template)
+- Dockerfile (with non-root user, minimal base image)
+- docs/configuration.md (security configuration guide)
+
+References: CRA Article 10(1) - Secure-by-design
+
+================================================================================
+
+RULE CRA-BASE-005: Update and Patch Management
+================================================================================
+
+What it means:
+You must have a process for providing security updates and patches. CRA
+requires that products can be updated to address vulnerabilities. Evidence
+includes: release tags, changelog, update documentation.
+
+When it applies:
+- Applies to all product repositories.
+- Not applicable if the repo is a one-time script or deprecated project.
+
+What EURA can check automatically:
+- Signal: release_tag_count (integer), has_changelog (boolean),
+  days_since_last_update (integer)
+- EURA checks for: CHANGELOG.md, RELEASES.md, release tags in git,
+  version tags.
+- EURA can detect if repository is actively maintained (recent commits).
+
+What EURA cannot know:
+- Whether updates are actually delivered to end users (deployment process).
+- Whether updates are tested before release.
+- Whether the update process is documented for users.
+
+Typical false positives / edge cases:
+- False positive: Repo is actively developed but doesn't use semantic
+  versioning tags (just commits).
+- Edge case: Product is stable and doesn't need frequent updates (but should
+  still have update capability).
+- Edge case: Updates are managed outside this repo (monorepo, separate
+  release repo).
+
+Remediation steps:
+
+MVP level:
+1. Create CHANGELOG.md documenting security updates.
+2. Use git tags for releases (v1.0.0, v1.0.1, etc.).
+3. Document update process in README or docs.
+4. Ensure users can identify which version they're running.
+
+Mature level:
+1. Implement semantic versioning consistently.
+2. Automate changelog generation from commits.
+3. Provide update notifications/mechanisms for users.
+4. Maintain a release policy document.
+5. Test update procedures (can users upgrade safely?).
+6. Provide rollback procedures.
+
+Suggested evidence artifacts:
+- CHANGELOG.md or RELEASES.md
+- Git tags (v*.*.* pattern)
+- docs/updates.md (update procedure documentation)
+- .github/workflows/release.yml (automated release process)
+
+References: CRA Article 11 - Update obligations
+
+================================================================================
+
+RULE CRA-BASE-006: Security Testing in CI/CD
+================================================================================
+
+What it means:
+You should have automated security testing as part of your build/deployment
+process. This demonstrates proactive security validation, which CRA expects.
+
+When it applies:
+- Applies if has_cicd_config = true (repository has CI/CD configuration).
+- Not applicable if the repo has no CI/CD setup.
+
+What EURA can check automatically:
+- Signal: has_security_testing (boolean)
+- EURA scans CI/CD configs (.github/workflows/*.yml, .gitlab-ci.yml,
+  .circleci/config.yml, etc.) for:
+  - Security scanning tools (Snyk, OWASP ZAP, Bandit, etc.)
+  - Dependency vulnerability checks
+  - Secret scanning
+  - SAST (Static Application Security Testing)
+  - Container scanning
+
+What EURA cannot know:
+- Whether security tests actually run (CI might be disabled).
+- Whether test failures block deployment.
+- Whether the security tests are effective (coverage, quality).
+
+Typical false positives / edge cases:
+- False positive: Security testing exists but in a separate CI system not
+  in the repo.
+- Edge case: Tests are commented out or disabled (EURA may still detect them).
+- Edge case: Security testing is manual, not automated.
+
+Remediation steps:
+
+MVP level:
+1. Add basic security scanning to CI/CD:
+   - Dependency vulnerability check (npm audit, pip-audit)
+   - Secret scanning (GitGuardian, truffleHog, or GitHub native)
+2. Run security scans on every PR and main branch.
+3. Document security testing approach.
+
+Mature level:
+1. Implement comprehensive security testing:
+   - SAST (SonarQube, CodeQL, Semgrep)
+   - Dependency scanning (Snyk, Dependabot)
+   - Container scanning (Trivy, Clair)
+   - DAST (OWASP ZAP, Burp Suite)
+2. Fail builds on high/critical security issues.
+3. Generate security test reports.
+4. Integrate with security dashboards.
+5. Set up alerts for new vulnerabilities.
+
+Suggested evidence artifacts:
+- .github/workflows/security.yml (security testing workflow)
+- .github/workflows/dependency-scan.yml (dependency scanning)
+- docs/security-testing.md (security testing policy)
+- .snyk, .bandit, or other security tool configs
+
+References: CRA Article 10(1) - Secure development practices
+
+================================================================================
+
+RULE CRA-BASE-007: Documentation of Security Features
+================================================================================
+
+What it means:
+Users must understand how to use your product securely. CRA requires that
+products provide adequate documentation. Security-relevant features should
+be documented.
+
+When it applies:
+- Applies to all product repositories.
+- Not applicable if the repo is a library with no user-facing features.
+
+What EURA can check automatically:
+- Signal: has_security_documentation (boolean) - derived from file presence
+- EURA checks for: README.md with security section, docs/security.md,
+  docs/user-guide.md with security info.
+- EURA can detect if documentation mentions: authentication, encryption,
+  secure configuration, security features.
+
+What EURA cannot know:
+- Whether the documentation is accurate or complete.
+- Whether documentation is user-friendly and understandable.
+- Whether documentation is kept up-to-date with code changes.
+
+Typical false positives / edge cases:
+- False positive: Security docs exist but are outdated or incomplete.
+- Edge case: Documentation is in a separate docs repository.
+- Edge case: Product is so simple that extensive security docs aren't needed.
+
+Remediation steps:
+
+MVP level:
+1. Add a "Security" section to README.md covering:
+   - How to report vulnerabilities
+   - Basic security features
+   - Secure configuration requirements
+2. Document authentication/authorization if applicable.
+3. Document any security-relevant settings.
+
+Mature level:
+1. Create dedicated security documentation:
+   - docs/security.md (comprehensive security guide)
+   - docs/authentication.md (auth setup and best practices)
+   - docs/encryption.md (if applicable)
+2. Include security considerations in user guides.
+3. Provide security checklists for deployment.
+4. Document security architecture.
+5. Keep documentation in sync with code (automated checks).
+
+Suggested evidence artifacts:
+- README.md (with Security section)
+- docs/security.md
+- docs/user-guide.md (with security considerations)
+- docs/deployment.md (secure deployment guide)
+
+References: CRA Article 10(3) - Documentation requirements
+
+================================================================================
+
+RULE CRA-BASE-008: No Hardcoded Secrets
+================================================================================
+
+What it means:
+Secrets (API keys, passwords, tokens) must never be committed to version
+control. This is a fundamental security requirement and CRA violation risk.
+
+When it applies:
+- Applies to all repositories.
+- Critical for repositories with has_cicd_config = true (secrets often leak
+  in CI/CD configs).
+
+What EURA can check automatically:
+- Signal: has_hardcoded_secrets (boolean) - from content analysis
+- EURA scans files for patterns:
+  - API keys (sk-*, AKIA*, etc.)
+  - Passwords (password=*, pwd=*, passwd=*)
+  - Tokens (token=*, secret=*, key=*)
+  - AWS credentials, GitHub tokens, etc.
+- EURA checks .gitignore to ensure .env files are excluded.
+
+What EURA cannot know:
+- Whether detected secrets are still valid (may be rotated).
+- Whether secrets are in test/example code (still bad practice).
+- Whether secrets are in git history (even if removed from current code).
+
+Typical false positives / edge cases:
+- False positive: Code contains example/placeholder secrets that are clearly
+  marked as non-functional.
+- Edge case: Secrets are in a private branch that will be cleaned before merge.
+- Edge case: Detected pattern is not actually a secret (variable name like
+  "api_key" but value is a placeholder).
+
+Remediation steps:
+
+MVP level:
+1. Immediately rotate any exposed secrets.
+2. Remove secrets from code and git history (git filter-branch or BFG).
+3. Add .env to .gitignore.
+4. Use environment variables for all secrets.
+5. Add .env.example with placeholder values.
+
+Mature level:
+1. Implement pre-commit hooks that scan for secrets (git-secrets, truffleHog).
+2. Use secrets management service (AWS Secrets Manager, HashiCorp Vault).
+3. Scan git history for historical secrets (git-secrets, gitleaks).
+4. Implement secret rotation policies.
+5. Use CI/CD secret scanning (GitHub Advanced Security, GitGuardian).
+6. Train team on secret management best practices.
+
+Suggested evidence artifacts:
+- .gitignore (with .env, *.key, secrets/ excluded)
+- .env.example (template without real secrets)
+- .pre-commit-config.yaml (with secret scanning hooks)
+- docs/secrets-management.md (policy document)
+
+References: CRA Article 10(1) - Secure-by-design
+
+================================================================================
+
+RULE CRA-BASE-009: Dependency Pinning and Reproducibility
+================================================================================
+
+What it means:
+Dependencies should be pinned to specific versions (not "^1.0.0" or "latest").
+This ensures reproducible builds and prevents unexpected updates that could
+introduce vulnerabilities.
+
+When it applies:
+- Applies if dependency_count > 0 (repository uses dependencies).
+- Strongly applies if has_lockfile = false (no lockfile means versions aren't
+  pinned).
+
+What EURA can check automatically:
+- Signal: has_pinned_dependencies (boolean)
+- EURA analyzes manifest files for:
+  - Version ranges (^, ~, >=, *) in package.json, requirements.txt
+  - Presence of lockfiles
+  - Whether lockfiles are committed to repo
+
+What EURA cannot know:
+- Whether version ranges are intentional (for library compatibility).
+- Whether lockfiles are kept in sync with manifests.
+- Whether the team has a process for updating dependencies safely.
+
+Typical false positives / edge cases:
+- False positive: Library packages intentionally use ranges for compatibility
+  (different use case than applications).
+- Edge case: Lockfile exists but is in .gitignore (team policy issue).
+- Edge case: Dependencies are managed by a package manager that doesn't
+  support lockfiles.
+
+Remediation steps:
+
+MVP level:
+1. Pin all dependencies to exact versions in manifest files.
+2. Commit lockfiles to version control.
+3. Update dependencies intentionally, not automatically.
+4. Document dependency update process.
+
+Mature level:
+1. Use lockfiles for all dependency types (npm, pip, bundler, etc.).
+2. Implement dependency update policy (regular reviews, testing before
+   updates).
+3. Use automated dependency updates with human review (Dependabot, Renovate).
+4. Test updates in CI/CD before merging.
+5. Maintain dependency update changelog.
+
+Suggested evidence artifacts:
+- package-lock.json, yarn.lock, Pipfile.lock (committed lockfiles)
+- requirements.txt (with pinned versions: package==1.2.3)
+- docs/dependency-management.md (pinning and update policy)
+
+References: CRA Article 10(2) - Reproducibility and transparency
+
+================================================================================
+
+RULE CRA-BASE-010: Container Security (Dockerfile Best Practices)
+================================================================================
+
+What it means:
+If you use containers (Docker), they should follow security best practices:
+non-root user, minimal base images, no secrets, health checks, etc. This
+demonstrates secure-by-design principles.
+
+When it applies:
+- Applies if has_dockerfile = true (repository contains Dockerfile).
+- Not applicable if the repo doesn't use containers.
+
+What EURA can check automatically:
+- Signal: dockerfile_security_score (integer) - derived from analysis
+- EURA scans Dockerfiles for:
+  - Root user usage (USER root)
+  - Large base images (ubuntu, debian vs alpine)
+  - Exposed ports without necessity
+  - Missing health checks
+  - Secrets in Dockerfile
+  - Outdated base images
+
+What EURA cannot know:
+- Whether containers run with additional security constraints (Kubernetes
+  security contexts, AppArmor, etc.).
+- Whether the application actually needs root (some do legitimately).
+- Whether base image choice is appropriate for the use case.
+
+Typical false positives / edge cases:
+- False positive: Dockerfile uses root but container runs with non-root
+  via runtime configuration.
+- Edge case: Legacy application requires root (migration needed).
+- Edge case: Development Dockerfile is intentionally permissive (but
+  production uses different image).
+
+Remediation steps:
+
+MVP level:
+1. Use non-root user in Dockerfile:
+   ```dockerfile
+   RUN adduser -D appuser
+   USER appuser
+   ```
+2. Use minimal base images (alpine, distroless).
+3. Don't expose unnecessary ports.
+4. Add HEALTHCHECK instruction.
+
+Mature level:
+1. Use multi-stage builds to reduce image size.
+2. Scan base images for vulnerabilities.
+3. Implement image signing and verification.
+4. Use distroless or scratch images when possible.
+5. Implement least-privilege principles.
+6. Document container security practices.
+
+Suggested evidence artifacts:
+- Dockerfile (with security best practices)
+- .dockerignore (exclude unnecessary files)
+- docker-compose.yml (if applicable, with security settings)
+- docs/container-security.md (container security guide)
+
+References: CRA Article 10(1) - Secure-by-design
+
+================================================================================
+
+RULE CRA-BASE-011: Lifecycle Management Evidence
+================================================================================
+
+What it means:
+You must demonstrate that your product is actively maintained and has a
+lifecycle plan. CRA requires products to be supported throughout their
+lifecycle. Evidence includes: recent commits, maintenance status,
+deprecation notices if applicable.
+
+When it applies:
+- Applies to all product repositories.
+- Not applicable if the repo explicitly marks itself as deprecated/archived.
+
+What EURA can check automatically:
+- Signal: days_since_last_update (integer), is_archived (boolean)
+- EURA checks:
+  - Recent commit activity (within last 90 days suggests active maintenance)
+  - Repository archived status
+  - Maintenance badges or status in README
+  - Deprecation notices
+
+What EURA cannot know:
+- Whether the product is actually supported (may have commits but no support).
+- Whether there's a formal support policy.
+- Whether the lifecycle plan is documented.
+
+Typical false positives / edge cases:
+- False positive: Repo is stable and doesn't need frequent updates (but is
+  still maintained).
+- Edge case: Product is in maintenance mode (security updates only).
+- Edge case: Maintenance happens in a different repository.
+
+Remediation steps:
+
+MVP level:
+1. Ensure repository shows recent activity (commits, issues, PRs).
+2. Add maintenance status to README (actively maintained, security updates
+   only, etc.).
+3. Respond to issues and PRs in a timely manner.
+
+Mature level:
+1. Document lifecycle policy (support duration, EOL dates).
+2. Publish maintenance schedule.
+3. Provide migration paths for deprecated features.
+4. Maintain a public roadmap.
+5. Set up automated dependency updates to show ongoing maintenance.
+
+Suggested evidence artifacts:
+- README.md (with maintenance status)
+- docs/lifecycle.md (lifecycle and support policy)
+- .github/SUPPORT.md (support information)
+
+References: CRA Article 11 - Product lifecycle obligations
+
+================================================================================
+
+RULE CRA-BASE-012: Access Control Documentation
+================================================================================
+
+What it means:
+If your product has authentication/authorization features, they must be
+documented. Users need to understand how to configure access controls
+securely. CRA requires adequate documentation of security features.
+
+When it applies:
+- Applies if the repository contains authentication/authorization code or
+  configuration.
+- Not applicable if the product has no user access controls.
+
+What EURA can check automatically:
+- Signal: has_auth_documentation (boolean)
+- EURA searches for:
+  - Authentication-related code (login, auth, oauth, jwt, etc.)
+  - Auth configuration files
+  - Documentation mentioning authentication, authorization, roles, permissions
+- EURA checks if auth features are documented in README or docs.
+
+What EURA cannot know:
+- Whether the documentation is accurate or complete.
+- Whether access controls are properly implemented (only that they're
+  documented).
+- Whether default permissions are secure.
+
+Typical false positives / edge cases:
+- False positive: Auth code exists but product uses external auth provider
+  (documentation may be minimal).
+- Edge case: Documentation exists but is outdated.
+- Edge case: Auth is handled by a separate service (not in this repo).
+
+Remediation steps:
+
+MVP level:
+1. Document authentication method in README.
+2. Explain how to configure user accounts/roles if applicable.
+3. Document any default permissions or access levels.
+
+Mature level:
+1. Create comprehensive authentication documentation:
+   - docs/authentication.md (auth setup guide)
+   - docs/authorization.md (permissions and roles)
+   - docs/security-roles.md (role definitions)
+2. Include security considerations (password policies, MFA, etc.).
+3. Provide examples and code samples.
+4. Document access control best practices.
+
+Suggested evidence artifacts:
+- README.md (authentication section)
+- docs/authentication.md
+- docs/authorization.md
+- config/auth.example.yml (example auth configuration)
+
+References: CRA Article 10(3) - Documentation of security features
+
+================================================================================
+
+RULE CRA-BASE-013: Encryption and Data Protection
+================================================================================
+
+What it means:
+If your product handles sensitive data, encryption should be used and
+documented. CRA requires appropriate security measures for data protection.
+Evidence includes: encryption configuration, TLS/SSL settings, data
+protection documentation.
+
+When it applies:
+- Applies if the repository handles user data, PII, or sensitive information.
+- Strongly applies if the product is a web application or API.
+
+What EURA can check automatically:
+- Signal: has_encryption_config (boolean)
+- EURA searches for:
+  - TLS/SSL configuration (https, ssl, tls in configs)
+  - Encryption libraries/imports in code
+  - Encryption-related configuration files
+  - Documentation mentioning encryption, data protection, GDPR
+
+What EURA cannot know:
+- Whether encryption is properly implemented (only that it's configured).
+- Whether encryption keys are managed securely.
+- Whether data is encrypted at rest and in transit.
+
+Typical false positives / edge cases:
+- False positive: Encryption is handled by infrastructure (load balancer,
+  database) not application code.
+- Edge case: Product doesn't handle sensitive data (encryption not required).
+- Edge case: Encryption is implemented but not documented.
+
+Remediation steps:
+
+MVP level:
+1. Document encryption approach in README or security docs.
+2. Ensure TLS/SSL is used for all network communication.
+3. Document how sensitive data is protected.
+
+Mature level:
+1. Implement encryption at rest for databases and file storage.
+2. Use strong encryption algorithms and key management.
+3. Document encryption key rotation procedures.
+4. Implement data classification and handling policies.
+5. Consider GDPR/data protection compliance if handling EU data.
+
+Suggested evidence artifacts:
+- docs/encryption.md (encryption implementation guide)
+- docs/data-protection.md (data handling and protection)
+- config/ssl.example.yml (TLS/SSL configuration example)
+
+References: CRA Article 10(1) - Data protection requirements
+
+================================================================================
+
+RULE CRA-BASE-014: Incident Response Preparation
+================================================================================
+
+What it means:
+You should have documentation about how security incidents are handled.
+While CRA's incident reporting is primarily organizational, having
+documentation in the repo shows preparedness.
+
+When it applies:
+- Applies to all product repositories.
+- More important for products that handle sensitive data or have many users.
+
+What EURA can check automatically:
+- Signal: has_incident_response_docs (boolean)
+- EURA searches for:
+  - SECURITY.md with incident response section
+  - docs/incident-response.md
+  - README mentioning security incidents, breach procedures
+- EURA can detect keywords: "incident", "breach", "response", "reporting"
+
+What EURA cannot know:
+- Whether the incident response process is actually followed.
+- Whether the process meets CRA reporting requirements (72-hour notification).
+- Whether the team is trained on incident response.
+
+Typical false positives / edge cases:
+- False positive: Documentation exists but is generic/placeholder text.
+- Edge case: Incident response is handled at organizational level (not
+  repo-specific).
+- Edge case: Product is too small to have formal incident response.
+
+Remediation steps:
+
+MVP level:
+1. Add incident response section to SECURITY.md:
+   - How to report security issues
+   - Expected response timeline
+   - Contact information
+2. Document what constitutes a security incident.
+
+Mature level:
+1. Create comprehensive incident response plan:
+   - docs/incident-response.md (detailed procedures)
+   - Incident classification (severity levels)
+   - Communication templates
+   - Post-incident review process
+2. Define roles and responsibilities.
+3. Set up incident response team contacts.
+4. Practice incident response procedures.
+5. Document lessons learned from past incidents.
+
+Suggested evidence artifacts:
+- SECURITY.md (with incident response section)
+- docs/incident-response.md
+- .github/SECURITY.md (GitHub security policy)
+
+References: CRA Article 11 - Incident reporting (organizational, but
+documentation demonstrates preparedness)
+
+================================================================================
+
+RULE CRA-BASE-015: Build and Deployment Security
+================================================================================
+
+What it means:
+Your build and deployment process should be secure. This includes: secure
+CI/CD configuration, signed artifacts, secure deployment procedures. CRA
+expects security throughout the product lifecycle.
+
+When it applies:
+- Applies if has_cicd_config = true (repository has CI/CD).
+- Strongly applies if has_dockerfile = true (containerized deployments).
+
+What EURA can check automatically:
+- Signal: has_secure_build_process (boolean)
+- EURA scans CI/CD configs for:
+  - Secret management (using secrets, not hardcoded)
+  - Artifact signing
+  - Security scanning in pipeline
+  - Secure deployment steps
+- EURA checks for deployment documentation.
+
+What EURA cannot know:
+- Whether CI/CD secrets are properly managed.
+- Whether deployment process is actually followed.
+- Whether artifacts are verified before deployment.
+
+Typical false positives / edge cases:
+- False positive: Secure practices exist but in separate deployment system.
+- Edge case: CI/CD is for development only (production uses different process).
+- Edge case: Deployment is manual but documented.
+
+Remediation steps:
+
+MVP level:
+1. Use CI/CD secrets management (GitHub Secrets, GitLab CI variables, etc.).
+2. Never hardcode credentials in CI/CD configs.
+3. Document deployment process.
+4. Add basic security checks to deployment pipeline.
+
+Mature level:
+1. Implement artifact signing and verification.
+2. Use secure deployment channels (VPN, private networks).
+3. Implement deployment approvals and audit logs.
+4. Use infrastructure-as-code for reproducible deployments.
+5. Implement blue-green or canary deployments.
+6. Document rollback procedures.
+
+Suggested evidence artifacts:
+- .github/workflows/deploy.yml (secure deployment workflow)
+- docs/deployment.md (deployment procedures)
+- .github/workflows/release.yml (signed release process)
+
+References: CRA Article 10(1) - Secure development and deployment
+
+================================================================================
+
+RULE CRA-BASE-016: Third-Party Component Assessment
+================================================================================
+
+What it means:
+You should assess third-party components (dependencies) for security and
+compliance. CRA requires knowing what's in your product. Having a process
+for dependency assessment demonstrates due diligence.
+
+When it applies:
+- Applies if dependency_count > 0 (repository uses dependencies).
+- More important for products with many dependencies.
+
+What EURA can check automatically:
+- Signal: has_dependency_assessment (boolean)
+- EURA checks for:
+  - Dependency review documentation
+  - Approval process for new dependencies
+  - Dependency policy documents
+  - Evidence of dependency audits
+
+What EURA cannot know:
+- Whether the assessment process is actually followed.
+- Whether dependencies are reviewed before being added.
+- Whether the assessment is thorough.
+
+Typical false positives / edge cases:
+- False positive: Dependencies are assessed but not documented in repo.
+- Edge case: Small project with few dependencies (informal assessment OK).
+- Edge case: All dependencies are from trusted sources (still should be
+  documented).
+
+Remediation steps:
+
+MVP level:
+1. Document dependency approval process in README or docs.
+2. Review dependencies before adding them.
+3. Prefer well-maintained, popular dependencies.
+4. Document why each major dependency was chosen.
+
+Mature level:
+1. Create formal dependency assessment process:
+   - docs/dependency-assessment.md (assessment criteria)
+   - Dependency approval workflow
+   - Regular dependency audits
+2. Maintain approved dependency list.
+3. Assess dependencies for: license compatibility, security track record,
+   maintenance status, compliance.
+4. Document exceptions for dependencies that don't meet criteria.
+
+Suggested evidence artifacts:
+- docs/dependency-policy.md (dependency selection and assessment policy)
+- docs/approved-dependencies.md (list of approved dependencies)
+- .github/ISSUE_TEMPLATE/new-dependency.md (template for dependency requests)
+
+References: CRA Article 10(2) - Third-party component transparency
+
+================================================================================
+
+RULE CRA-BASE-017: Version and Release Management
+================================================================================
+
+What it means:
+You must be able to identify which version of your product is deployed and
+what changes are in each version. This supports vulnerability management
+and update processes required by CRA.
+
+When it applies:
+- Applies to all product repositories.
+- Critical if the product is deployed to users.
+
+What EURA can check automatically:
+- Signal: has_version_management (boolean)
+- EURA checks for:
+  - Version numbers in code (package.json version, __version__, etc.)
+  - Semantic versioning tags (v*.*.*)
+  - CHANGELOG.md or RELEASES.md
+  - Version tracking in code
+
+What EURA cannot know:
+- Whether versions are actually used in deployments.
+- Whether versioning scheme is consistent.
+- Whether users can identify their version.
+
+Typical false positives / edge cases:
+- False positive: Version exists but is not updated on releases.
+- Edge case: Product uses commit hashes as versions (acceptable but less
+  user-friendly).
+- Edge case: Versioning is managed in a separate system.
+
+Remediation steps:
+
+MVP level:
+1. Include version number in code (package.json, VERSION file, etc.).
+2. Use git tags for releases (v1.0.0 format).
+3. Update version on each release.
+4. Include version in application output (--version flag, /version endpoint).
+
+Mature level:
+1. Implement semantic versioning consistently.
+2. Automate version bumping in CI/CD.
+3. Include version in all build artifacts.
+4. Provide version API endpoint.
+5. Document versioning scheme.
+6. Maintain version compatibility matrix.
+
+Suggested evidence artifacts:
+- package.json (with version field)
+- VERSION file
+- CHANGELOG.md (with version history)
+- Git tags (v*.*.*)
+- docs/versioning.md (versioning policy)
+
+References: CRA Article 11 - Version identification for updates
+
+================================================================================
+
+RULE CRA-BASE-018: Secure Communication Documentation
+================================================================================
+
+What it means:
+If your product communicates over networks, secure communication (TLS/HTTPS)
+should be required and documented. CRA requires secure-by-design, which
+includes secure network communication.
+
+When it applies:
+- Applies if the product is a web application, API, or network service.
+- Not applicable if the product has no network communication.
+
+What EURA can check automatically:
+- Signal: requires_secure_communication (boolean)
+- EURA searches for:
+  - HTTPS/TLS configuration
+  - SSL certificate configuration
+  - Documentation mentioning HTTPS, TLS, SSL
+  - Code that enforces secure connections
+
+What EURA cannot know:
+- Whether TLS is actually enforced in production.
+- Whether certificates are properly managed.
+- Whether all communication channels are secured.
+
+Typical false positives / edge cases:
+- False positive: TLS is handled by infrastructure (load balancer, reverse
+  proxy) not application.
+- Edge case: Product supports both HTTP and HTTPS (should prefer HTTPS).
+- Edge case: Internal-only product (may use different security model).
+
+Remediation steps:
+
+MVP level:
+1. Document that HTTPS/TLS is required.
+2. Use HTTPS in all examples and documentation.
+3. Configure application to prefer/require HTTPS.
+4. Document TLS version requirements (TLS 1.2+).
+
+Mature level:
+1. Enforce HTTPS at application level (redirect HTTP to HTTPS).
+2. Implement HSTS (HTTP Strict Transport Security).
+3. Use certificate pinning for mobile apps.
+4. Document certificate management and rotation.
+5. Implement TLS configuration validation.
+6. Monitor for insecure connection attempts.
+
+Suggested evidence artifacts:
+- docs/security.md (TLS/HTTPS requirements)
+- config/ssl.example.yml (TLS configuration)
+- README.md (HTTPS requirement mentioned)
+
+References: CRA Article 10(1) - Secure communication requirements
+
+================================================================================
+
+REMEDIATION CATALOG
+================================================================================
+
+REM-001: Create Security Policy Document
+- Action: Create SECURITY.md file in repository root or .github/ directory
+- Template: Include contact email, response time commitment, scope of
+  vulnerabilities to report
+- Verification: File exists and contains security contact information
+- Timeline: Can be done immediately (1 hour)
+
+REM-002: Implement Dependency Lockfiles
+- Action: Generate and commit dependency lockfiles (package-lock.json,
+  Pipfile.lock, etc.)
+- Tools: npm install, pipenv lock, poetry lock
+- Verification: Lockfile exists and is committed to version control
+- Timeline: Immediate for existing projects, ongoing for new dependencies
+
+REM-003: Set Up Dependency Vulnerability Scanning
+- Action: Integrate vulnerability scanning into development workflow
+- Tools: npm audit, pip-audit, Snyk, Dependabot, OWASP Dependency-Check
+- Verification: Scanning runs automatically (CI/CD or pre-commit)
+- Timeline: 1-2 days for setup, ongoing monitoring
+
+REM-004: Remove Hardcoded Secrets
+- Action: Audit codebase for secrets, remove them, rotate exposed secrets
+- Tools: git-secrets, truffleHog, gitleaks, GitGuardian
+- Verification: No secrets detected in scans, .env in .gitignore
+- Timeline: Immediate (rotate secrets), 1 day for cleanup
+
+REM-005: Implement Secure Defaults
+- Action: Review and update default configurations to be secure
+- Steps: Remove default passwords, use environment variables, add .env.example
+- Verification: No secrets in config files, secure defaults documented
+- Timeline: 1-2 days depending on config complexity
+
+REM-006: Add Security Testing to CI/CD
+- Action: Add security scanning steps to CI/CD pipeline
+- Tools: CodeQL, Semgrep, Bandit, Snyk, OWASP ZAP
+- Verification: Security tests run on every PR/commit
+- Timeline: 2-3 days for initial setup
+
+REM-007: Create Security Documentation
+- Action: Add security section to README and/or create dedicated security docs
+- Content: Security features, secure configuration, vulnerability reporting
+- Verification: Documentation exists and is accessible
+- Timeline: 1 day for initial documentation
+
+REM-008: Implement Dependency Pinning
+- Action: Pin all dependencies to exact versions, commit lockfiles
+- Tools: Update manifest files, generate lockfiles
+- Verification: No version ranges in manifests, lockfiles committed
+- Timeline: 1 day for existing projects
+
+REM-009: Secure Dockerfile Configuration
+- Action: Update Dockerfile to use non-root user, minimal base image
+- Steps: Add USER directive, switch to alpine/distroless base, add HEALTHCHECK
+- Verification: Dockerfile follows security best practices
+- Timeline: 1 day
+
+REM-010: Document Update and Patch Process
+- Action: Create CHANGELOG.md and document update procedures
+- Content: How to update, version history, update notifications
+- Verification: CHANGELOG exists, update process documented
+- Timeline: 1 day
+
+REM-011: Establish Lifecycle Management
+- Action: Document maintenance status and lifecycle policy
+- Content: Support duration, maintenance schedule, EOL policy
+- Verification: Lifecycle information in README or docs
+- Timeline: 1 day
+
+REM-012: Document Access Controls
+- Action: Create authentication/authorization documentation
+- Content: How auth works, how to configure, security considerations
+- Verification: Auth documentation exists
+- Timeline: 1-2 days depending on complexity
+
+REM-013: Document Encryption Approach
+- Action: Document how encryption is used in the product
+- Content: Encryption at rest, in transit, key management
+- Verification: Encryption documentation exists
+- Timeline: 1 day
+
+REM-014: Create Incident Response Documentation
+- Action: Add incident response section to SECURITY.md
+- Content: How to report, response timeline, contact information
+- Verification: Incident response info in SECURITY.md
+- Timeline: 1 day
+
+REM-015: Secure Build and Deployment
+- Action: Review and secure CI/CD configuration
+- Steps: Use secrets management, add security checks, document process
+- Verification: CI/CD uses secrets, no hardcoded credentials
+- Timeline: 2-3 days
+
+REM-016: Establish Dependency Assessment Process
+- Action: Document dependency selection and approval process
+- Content: Assessment criteria, approval workflow
+- Verification: Dependency policy document exists
+- Timeline: 1 day
+
+REM-017: Implement Version Management
+- Action: Add version tracking and use semantic versioning
+- Steps: Add version to code, use git tags, create CHANGELOG
+- Verification: Version is trackable, releases are tagged
+- Timeline: 1 day
+
+REM-018: Document Secure Communication Requirements
+- Action: Document TLS/HTTPS requirements
+- Content: TLS version requirements, certificate management
+- Verification: Secure communication documented
+- Timeline: 1 day
+
+================================================================================
+END OF RULE PACK v0.1
+================================================================================
+

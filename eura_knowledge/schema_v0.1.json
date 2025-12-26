@@ -1,0 +1,514 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "0.1",
+  "generated_at": "2024-12-21T00:00:00Z",
+  "description": "EURA Regulatory Knowledge Layer Schema for EU Cyber Resilience Act (CRA) compliance rules and evaluation outputs",
+  
+  "entities": {
+    "Rule": {
+      "type": "object",
+      "required": ["rule_id", "title", "description_short", "regulation", "applicability", "check_method", "severity"],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "pattern": "^CRA-[A-Z]+-[0-9]{3}$",
+          "description": "Stable identifier for the rule, e.g., CRA-BASE-001"
+        },
+        "title": {
+          "type": "string",
+          "description": "Short human-readable title"
+        },
+        "description_short": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Brief description of what the rule checks"
+        },
+        "description_long": {
+          "type": "string",
+          "description": "Detailed explanation of the rule"
+        },
+        "regulation": {
+          "type": "string",
+          "enum": ["CRA"],
+          "description": "Regulatory framework this rule belongs to"
+        },
+        "applicability": {
+          "type": "object",
+          "description": "Boolean logic conditions that determine when this rule applies",
+          "properties": {
+            "operator": {
+              "type": "string",
+              "enum": ["AND", "OR", "NOT"],
+              "description": "Logical operator for combining conditions"
+            },
+            "conditions": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "signal": {"type": "string"},
+                      "operator": {"type": "string", "enum": ["equals", "contains", "exists", "not_exists", "greater_than", "less_than"]},
+                      "value": {}
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operator": {"type": "string", "enum": ["AND", "OR", "NOT"]},
+                      "conditions": {"$ref": "#/entities/Rule/properties/applicability/properties/conditions"}
+                    }
+                  }
+                ]
+              }
+            },
+            "metadata_filters": {
+              "type": "object",
+              "properties": {
+                "repo_language": {"type": "array", "items": {"type": "string"}},
+                "has_dockerfile": {"type": "boolean"},
+                "has_cicd": {"type": "boolean"},
+                "dependency_count_min": {"type": "integer"}
+              }
+            }
+          }
+        },
+        "required_evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/entities/EvidenceSpec"
+          },
+          "description": "List of evidence specifications needed to evaluate this rule"
+        },
+        "check_method": {
+          "type": "string",
+          "enum": ["repo_scan_static", "dependency_analysis", "file_presence", "content_analysis", "policy_attestation", "manual_review"],
+          "description": "How this rule is evaluated"
+        },
+        "severity": {
+          "type": "object",
+          "required": ["overall"],
+          "properties": {
+            "impact": {
+              "type": "string",
+              "enum": ["critical", "high", "medium", "low"],
+              "description": "Impact if this rule is violated"
+            },
+            "likelihood": {
+              "type": "string",
+              "enum": ["high", "medium", "low"],
+              "description": "Likelihood of violation in typical repos"
+            },
+            "overall": {
+              "type": "string",
+              "enum": ["critical", "high", "medium", "low", "info"],
+              "description": "Overall severity rating"
+            }
+          }
+        },
+        "remediation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^REM-[0-9]{3}$"
+          },
+          "description": "References to remediation catalog entries"
+        },
+        "references": {
+          "type": "object",
+          "properties": {
+            "article": {"type": "string", "description": "CRA article reference, e.g., 'Article 10(1)'"},
+            "annex": {"type": "string", "description": "CRA annex reference"},
+            "note": {"type": "string", "description": "Additional context or interpretation notes"}
+          }
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$",
+          "description": "Version of this rule definition"
+        }
+      }
+    },
+    
+    "EvidenceSpec": {
+      "type": "object",
+      "required": ["type", "source"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["file_presence", "file_content", "dependency_list", "metadata", "signal_value"],
+          "description": "Type of evidence needed"
+        },
+        "source": {
+          "type": "string",
+          "description": "Where to find this evidence, e.g., 'SECURITY.md', 'dependencies', 'git_tags'"
+        },
+        "required": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this evidence is mandatory for evaluation"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Optional regex pattern to match against content"
+        },
+        "min_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum confidence threshold for this evidence"
+        }
+      }
+    },
+    
+    "Signal": {
+      "type": "object",
+      "required": ["name", "category", "data_type"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique signal identifier, e.g., 'has_security_policy', 'dependency_count'"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["dependency", "repo_metadata", "build_deploy", "documentation", "configuration", "version_control"],
+          "description": "Category of signal"
+        },
+        "data_type": {
+          "type": "string",
+          "enum": ["boolean", "integer", "string", "array", "object"],
+          "description": "Data type of the signal value"
+        },
+        "extraction_source": {
+          "type": "string",
+          "description": "Where this signal comes from, e.g., 'file_scan', 'dependency_parser', 'git_api'"
+        },
+        "description": {
+          "type": "string",
+          "description": "What this signal represents"
+        },
+        "examples": {
+          "type": "array",
+          "items": {},
+          "description": "Example values for this signal"
+        }
+      }
+    },
+    
+    "EvaluationResult": {
+      "type": "object",
+      "required": ["scan_id", "repo", "evaluated_at", "rule_results"],
+      "properties": {
+        "scan_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Reference to the scan that produced this evaluation"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository identifier, e.g., 'owner/repo'"
+        },
+        "commit_hash": {
+          "type": "string",
+          "description": "Git commit SHA that was evaluated"
+        },
+        "evaluated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when evaluation was performed"
+        },
+        "rule_results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/entities/RuleResult"
+          },
+          "description": "Results for each applicable rule"
+        },
+        "evidence_collected": {
+          "type": "array",
+          "items": {
+            "$ref": "#/entities/Evidence"
+          },
+          "description": "All evidence collected during evaluation"
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "rule_id": {"type": "string"},
+              "missing_evidence": {"type": "array", "items": {"type": "string"}},
+              "reason": {"type": "string"}
+            }
+          },
+          "description": "Rules that could not be evaluated due to missing evidence"
+        },
+        "generated_findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "rule_id": {"type": "string"},
+              "status": {"type": "string", "enum": ["FAIL", "UNKNOWN"]},
+              "finding_id": {"type": "string", "format": "uuid"},
+              "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+            }
+          },
+          "description": "Findings generated from rule evaluations"
+        }
+      }
+    },
+    
+    "RuleResult": {
+      "type": "object",
+      "required": ["rule_id", "status"],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "pattern": "^CRA-[A-Z]+-[0-9]{3}$"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE"],
+          "description": "Evaluation result status"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Confidence in the evaluation result"
+        },
+        "evidence_used": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Evidence IDs that were used in evaluation"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Explanation of the result, especially for UNKNOWN or NOT_APPLICABLE"
+        },
+        "evaluated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    
+    "Evidence": {
+      "type": "object",
+      "required": ["evidence_id", "type", "source", "collected_at"],
+      "properties": {
+        "evidence_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique identifier for this evidence"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["file_presence", "file_content", "dependency_list", "metadata", "signal_value"]
+        },
+        "source": {
+          "type": "string",
+          "description": "Where this evidence came from, e.g., file path or signal name"
+        },
+        "value": {},
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "collected_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Additional context about the evidence"
+        }
+      }
+    }
+  },
+  
+  "example_rule": {
+    "rule_id": "CRA-BASE-001",
+    "title": "Security Policy Documentation Present",
+    "description_short": "Repository must have a security policy document (SECURITY.md or equivalent)",
+    "description_long": "CRA requires products to have clear security documentation. A SECURITY.md file or equivalent security policy demonstrates commitment to coordinated vulnerability disclosure and helps users understand how to report security issues.",
+    "regulation": "CRA",
+    "applicability": {
+      "operator": "AND",
+      "conditions": [
+        {
+          "signal": "has_security_policy",
+          "operator": "exists"
+        }
+      ]
+    },
+    "required_evidence": [
+      {
+        "type": "file_presence",
+        "source": "SECURITY.md",
+        "required": false
+      },
+      {
+        "type": "file_presence",
+        "source": ".github/SECURITY.md",
+        "required": false
+      }
+    ],
+    "check_method": "repo_scan_static",
+    "severity": {
+      "impact": "medium",
+      "likelihood": "medium",
+      "overall": "medium"
+    },
+    "remediation_ids": ["REM-001"],
+    "references": {
+      "article": "Article 10(1)",
+      "note": "Interpreted as requirement for security documentation"
+    },
+    "version": "0.1"
+  },
+  
+  "example_signals": [
+    {
+      "name": "has_security_policy",
+      "category": "documentation",
+      "data_type": "boolean",
+      "extraction_source": "file_scan",
+      "description": "Whether repository contains SECURITY.md or equivalent",
+      "examples": [true, false]
+    },
+    {
+      "name": "dependency_count",
+      "category": "dependency",
+      "data_type": "integer",
+      "extraction_source": "dependency_parser",
+      "description": "Total number of dependencies found in manifest files",
+      "examples": [0, 15, 150]
+    },
+    {
+      "name": "has_dockerfile",
+      "category": "build_deploy",
+      "data_type": "boolean",
+      "extraction_source": "file_scan",
+      "description": "Whether repository contains Dockerfile",
+      "examples": [true, false]
+    },
+    {
+      "name": "has_cicd_config",
+      "category": "build_deploy",
+      "data_type": "boolean",
+      "extraction_source": "file_scan",
+      "description": "Whether repository contains CI/CD configuration files",
+      "examples": [true, false]
+    },
+    {
+      "name": "has_lockfile",
+      "category": "dependency",
+      "data_type": "boolean",
+      "extraction_source": "file_scan",
+      "description": "Whether repository contains dependency lockfile (package-lock.json, Pipfile.lock, etc.)",
+      "examples": [true, false]
+    },
+    {
+      "name": "has_sbom",
+      "category": "dependency",
+      "data_type": "boolean",
+      "extraction_source": "file_scan",
+      "description": "Whether repository contains Software Bill of Materials file",
+      "examples": [true, false]
+    },
+    {
+      "name": "has_changelog",
+      "category": "documentation",
+      "data_type": "boolean",
+      "extraction_source": "file_scan",
+      "description": "Whether repository contains changelog or release notes",
+      "examples": [true, false]
+    },
+    {
+      "name": "has_default_security_config",
+      "category": "configuration",
+      "data_type": "boolean",
+      "extraction_source": "content_analysis",
+      "description": "Whether default configurations use secure settings",
+      "examples": [true, false]
+    },
+    {
+      "name": "vulnerable_dependency_count",
+      "category": "dependency",
+      "data_type": "integer",
+      "extraction_source": "dependency_analysis",
+      "description": "Number of dependencies with known vulnerabilities",
+      "examples": [0, 3, 12]
+    },
+    {
+      "name": "has_security_testing",
+      "category": "build_deploy",
+      "data_type": "boolean",
+      "extraction_source": "content_analysis",
+      "description": "Whether CI/CD includes security testing steps",
+      "examples": [true, false]
+    },
+    {
+      "name": "release_tag_count",
+      "category": "version_control",
+      "data_type": "integer",
+      "extraction_source": "git_api",
+      "description": "Number of release tags in repository",
+      "examples": [0, 5, 20]
+    },
+    {
+      "name": "days_since_last_update",
+      "category": "version_control",
+      "data_type": "integer",
+      "extraction_source": "git_api",
+      "description": "Days since last commit to repository",
+      "examples": [0, 30, 365]
+    }
+  ],
+  
+  "example_evaluation_result": {
+    "scan_id": "550e8400-e29b-41d4-a716-446655440000",
+    "repo": "owner/repo",
+    "commit_hash": "abc123def456",
+    "evaluated_at": "2024-12-21T12:00:00Z",
+    "rule_results": [
+      {
+        "rule_id": "CRA-BASE-001",
+        "status": "PASS",
+        "confidence": 0.95,
+        "evidence_used": ["ev-001"],
+        "evaluated_at": "2024-12-21T12:00:00Z"
+      },
+      {
+        "rule_id": "CRA-BASE-002",
+        "status": "UNKNOWN",
+        "confidence": 0.3,
+        "reason": "Insufficient evidence: no dependency manifest files found",
+        "evaluated_at": "2024-12-21T12:00:00Z"
+      }
+    ],
+    "evidence_collected": [
+      {
+        "evidence_id": "ev-001",
+        "type": "file_presence",
+        "source": "SECURITY.md",
+        "value": true,
+        "confidence": 1.0,
+        "collected_at": "2024-12-21T12:00:00Z"
+      }
+    ],
+    "gaps": [
+      {
+        "rule_id": "CRA-BASE-002",
+        "missing_evidence": ["dependency_list"],
+        "reason": "No requirements.txt, package.json, or pyproject.toml found"
+      }
+    ],
+    "generated_findings": []
+  }
+}
+
