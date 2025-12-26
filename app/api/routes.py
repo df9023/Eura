@@ -27,6 +27,7 @@ from app.services.database import (
     update_project_last_scan,
     insert_findings,
     bulk_insert_dependencies,
+    save_compliance_report,
 )
 
 router = APIRouter()
@@ -253,6 +254,30 @@ async def scan_repo(request: ScanRepoRequest):
             logger.info("Compliance evaluation complete: passed=%d, failed=%d, unknown=%d, not_applicable=%d",
                        compliance_report.passed, compliance_report.failed, 
                        compliance_report.unknown, compliance_report.not_applicable)
+            
+            # Save compliance report to database (only if project_id is provided and Supabase is configured)
+            if request.project_id and supabase and scan_id:
+                logger.info("Saving compliance report to database...")
+                try:
+                    report_id = save_compliance_report(
+                        scan_id=scan_id,
+                        project_id=request.project_id,
+                        compliance_report=compliance_report
+                    )
+                    if report_id:
+                        logger.info("Saved compliance report: report_id=%s", report_id)
+                    else:
+                        logger.warning("Failed to save compliance report (returned None)")
+                except Exception as e:
+                    logger.error("Failed to save compliance report (non-fatal): %s", str(e)[:200])
+            else:
+                if not request.project_id:
+                    logger.info("Ephemeral scan: skipping compliance report persistence (no project_id)")
+                elif not supabase:
+                    logger.warning("Skipping compliance report persistence: Supabase not configured")
+                elif not scan_id:
+                    logger.warning("Skipping compliance report persistence: no scan_id")
+                    
         except Exception as e:
             logger.error("Failed to evaluate compliance rules (non-fatal): %s", str(e)[:200])
             # Continue without compliance report if evaluation fails

@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from app.core.config import supabase
 from app.core.logger import logger
 from app.models.domain import Finding, Evidence
-from app.schemas.requests import Dependency
+from app.schemas.requests import Dependency, ComplianceReport, RuleResult
 
 
 def generate_fingerprint(project_id: str, vuln_category: str, title: str, evidence: List[Evidence]) -> str:
@@ -253,4 +253,108 @@ def bulk_insert_dependencies(scan_id: str, project_id: str, dependencies: List[D
         else:
             # Don't raise - dependencies are important but not critical to scan success
             logger.warning("Continuing despite dependency insert failure")
+
+
+def save_compliance_report(scan_id: str, project_id: str, compliance_report: ComplianceReport) -> Optional[str]:
+    """
+    Save compliance report to database.
+    
+    Args:
+        scan_id: The scan ID this report belongs to
+        project_id: The project ID
+        compliance_report: The compliance report object
+    
+    Returns:
+        The report_id if successful, None otherwise
+    """
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    
+    if not compliance_report:
+        logger.warning("No compliance report to save")
+        return None
+    
+    try:
+        # Calculate score (percentage of passed rules, excluding NOT_APPLICABLE)
+        total_evaluated = compliance_report.passed + compliance_report.failed + compliance_report.unknown
+        if total_evaluated > 0:
+            score = (compliance_report.passed / total_evaluated) * 100.0
+        else:
+            score = 0.0
+        
+        # Create summary string
+        summary_parts = []
+        if compliance_report.passed > 0:
+            summary_parts.append(f"{compliance_report.passed} passed")
+        if compliance_report.failed > 0:
+            summary_parts.append(f"{compliance_report.failed} failed")
+        if compliance_report.unknown > 0:
+            summary_parts.append(f"{compliance_report.unknown} unknown")
+        if compliance_report.not_applicable > 0:
+            summary_parts.append(f"{compliance_report.not_applicable} not applicable")
+        
+        summary = ", ".join(summary_parts) if summary_parts else "No rules evaluated"
+        
+        # Insert compliance report
+        report_data = {
+            "scan_id": scan_id,
+            "project_id": project_id,
+            "score": round(score, 2),  # Store as decimal/float
+            "summary": summary,
+            "evaluated_at": compliance_report.evaluated_at,
+            "total_rules": compliance_report.total_rules,
+            "passed": compliance_report.passed,
+            "failed": compliance_report.failed,
+            "unknown": compliance_report.unknown,
+            "not_applicable": compliance_report.not_applicable,
+        }
+        
+        result = supabase.table("compliance_reports").insert(report_data).execute()
+        
+        if not result.data or len(result.data) == 0:
+            raise ValueError("Failed to create compliance report record")
+        
+        report_id = result.data[0]["id"]
+        logger.info("Created compliance report: report_id=%s, scan_id=%s, score=%.2f%%", 
+                   report_id, scan_id, score)
+        
+        # Bulk insert rule results into compliance_details
+        if compliance_report.rule_results:
+            details_data = []
+            for rule_result in compliance_report.rule_results:
+                details_data.append({
+                    "report_id": report_id,
+                    "scan_id": scan_id,
+                    "project_id": project_id,
+                    "rule_id": rule_result.rule_id,
+                    "status": rule_result.status,
+                    "confidence": rule_result.confidence,
+                    "reason": rule_result.reason,
+                    "evaluated_at": rule_result.evaluated_at,
+                })
+            
+            # Insert in batches
+            batch_size = 100
+            total_inserted = 0
+            
+            for i in range(0, len(details_data), batch_size):
+                batch = details_data[i:i + batch_size]
+                result = supabase.table("compliance_details").insert(batch).execute()
+                inserted_count = len(result.data) if result.data else 0
+                total_inserted += inserted_count
+                logger.debug("Inserted compliance details batch: %d rules", inserted_count)
+            
+            logger.info("Inserted compliance details: total=%d rules", total_inserted)
+        
+        return report_id
+        
+    except Exception as e:
+        logger.error("Failed to save compliance report: %s", e)
+        # Check if it's a duplicate constraint error
+        if "duplicate" in str(e).lower() or "unique" in str(e).lower():
+            logger.warning("Duplicate compliance report detected (constraint violation), continuing")
+        else:
+            # Don't raise - compliance report is important but not critical to scan success
+            logger.warning("Continuing despite compliance report save failure")
+        return None
 
