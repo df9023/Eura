@@ -132,7 +132,8 @@ async def execute_scan(
     
     Args:
         repo_name: Repository name in format "owner/repo"
-        installation_id: GitHub App installation ID (required for private repos)
+        installation_id: Optional GitHub App installation ID (required for private repos, 
+                        None for public repos uses unauthenticated or GITHUB_TOKEN)
         project_id: Optional project ID for persistence
         max_files: Optional max files to scan (defaults to MAX_FILES)
         repo_url: Repository URL or identifier (defaults to repo_name)
@@ -153,16 +154,16 @@ async def execute_scan(
         
         if "/" not in repo_name:
             raise HTTPException(status_code=400, detail="repo_name must be in format 'owner/repo'")
-        
-        if installation_id is None:
-            raise HTTPException(
-                status_code=400, 
-                detail="installation_id is required for repository access"
-            )
 
         max_files = max_files or MAX_FILES
 
-        logger.info("Fetching GitHub client for installation_id=%d", installation_id)
+        # Public mode: installation_id is None, use public/unauthenticated access
+        # GitHub App mode: installation_id provided, use app authentication
+        if installation_id is None:
+            logger.info("Using public mode: no installation_id provided")
+        else:
+            logger.info("Using GitHub App mode: installation_id=%d", installation_id)
+        
         github_client = get_github_client(installation_id)
         
         try:
@@ -170,13 +171,28 @@ async def execute_scan(
             repo = github_client.get_repo(repo_name)
             logger.info("Repository fetched successfully")
         except Exception as e:
-            if project_id and scan_id and supabase:
-                duration_ms = int((time.time() - start_time) * 1000)
-                try:
-                    update_scan_failure(scan_id, duration_ms, f"Repo not accessible: {e}")
-                except Exception:
-                    pass
-            raise HTTPException(status_code=404, detail=f"Repo not accessible: {e}")
+            # Handle 404 (repo not found) gracefully
+            error_msg = str(e)
+            if "404" in error_msg or "Not Found" in error_msg:
+                if project_id and scan_id and supabase:
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    try:
+                        update_scan_failure(scan_id, duration_ms, f"Repository not found: {repo_name}")
+                    except Exception:
+                        pass
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Repository not found or not accessible: {repo_name}. If this is a private repo, provide installation_id."
+                )
+            else:
+                # Other errors (rate limits, auth issues, etc.)
+                if project_id and scan_id and supabase:
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    try:
+                        update_scan_failure(scan_id, duration_ms, f"Repo access error: {e}")
+                    except Exception:
+                        pass
+                raise HTTPException(status_code=500, detail=f"Failed to access repository: {e}")
 
         # Get commit hash (HEAD)
         commit_hash = get_repo_commit_hash(repo)

@@ -4,17 +4,19 @@
 
 ### What is EURA?
 
-EURA is a compliance scanning platform that evaluates software repositories against the EU Cyber Resilience Act (CRA). It translates regulatory requirements into executable rules that can be automatically evaluated by scanning repository structure, files, dependencies, and code.
+EURA is a compliance scanning platform that evaluates software repositories against the EU Cyber Resilience Act (CRA), and other EU Regulations. It translates regulatory requirements into executable rules that can be automatically evaluated by scanning repository structure, files, dependencies, and code.
 
 ### MVP Capabilities (Current State)
 
-- **Repository Scanning**: Fetches and analyzes GitHub repositories using GitHub App authentication
+- **Repository Scanning**: Fetches and analyzes GitHub repositories using GitHub App authentication or public/unauthenticated access
+- **Public Mode**: Supports scanning public repositories without GitHub App installation (uses GITHUB_TOKEN or unauthenticated access)
 - **Dependency Extraction**: Deterministically parses dependencies from manifest files (requirements.txt, package.json, pyproject.toml)
 - **Code Analysis**: Optional LLM-based security scanning for advisory findings (non-blocking)
 - **Compliance Evaluation**: Evaluates repositories against 18 CRA rules (CRA-BASE-001 through CRA-BASE-018)
 - **Verdict Generation**: Returns deterministic SHIP_ALLOWED or SHIP_BLOCKED verdict based on rule failures
 - **Persistence**: Stores scan results, findings, dependencies, and compliance reports in Supabase
 - **Phase 0 API Contract**: Returns verdict-first ScanResultV1 objects with structured rule results
+- **CI/CD Integration**: CI gatekeeper script for blocking deployments based on compliance verdict
 
 ### Core Principle
 
@@ -32,21 +34,25 @@ EURA is a compliance scanning platform that evaluates software repositories agai
 
 1. **Frontend Request** (Lovable React)
    - User initiates scan via frontend
-   - Frontend calls `POST /v1/scans/run` with `{ repo_url, environment, installation_id }`
+   - Frontend calls `POST /v1/scans/run` with `{ repo_url, environment, installation_id? }`
+   - `installation_id` is optional (required for private repos, optional for public repos)
    - Request sent to FastAPI backend (deployed on Railway)
 
 2. **Backend Endpoint** (`app/api/routes.py`)
    - `run_scan_v1()` receives request
-   - Parses `repo_url` to extract `owner/repo` format
-   - Validates `installation_id` is provided
+   - `parse_repo_url()` robustly extracts `owner/repo` from various GitHub URL formats
+   - `installation_id` is optional - public repos can be scanned without it
    - Calls `execute_scan()` orchestrator function
 
 3. **Repository Fetch** (`app/services/github.py`)
-   - `get_github_client()` authenticates as GitHub App Installation
-   - Generates JWT token using GitHub App credentials
-   - Exchanges JWT for installation access token
+   - `get_github_client()` supports two modes:
+     - **Public Mode** (installation_id=None): Uses GITHUB_TOKEN env var if available, otherwise unauthenticated access
+     - **GitHub App Mode** (installation_id provided): Authenticates as GitHub App Installation
+       - Generates JWT token using GitHub App credentials
+       - Exchanges JWT for installation access token
    - `github_client.get_repo(repo_name)` fetches repository object
    - `get_repo_commit_hash()` retrieves HEAD commit SHA
+   - Handles 404 errors gracefully with clear error messages
 
 4. **File Discovery** (`app/services/github.py`)
    - `list_repo_files()` recursively lists all files in repository
@@ -116,9 +122,12 @@ EURA is a compliance scanning platform that evaluates software repositories agai
 Create a `.env` file in the project root with:
 
 ```
-# GitHub App Authentication
+# GitHub App Authentication (required for private repos)
 GITHUB_APP_ID=<your-app-id>
 GITHUB_PRIVATE_KEY=<your-private-key-pem>
+
+# GitHub Personal Access Token (optional, for public repo scanning with higher rate limits)
+GITHUB_TOKEN=<your-personal-access-token>
 
 # OpenAI API
 OPENAI_API_KEY=<your-openai-key>
@@ -224,7 +233,8 @@ Eura/
 │   └── cra_rule_pack_v0.1.txt    # Human-readable rule pack
 │
 ├── scripts/                       # Utility scripts
-│   └── ingest_rules.py           # Converts rule pack to rules_db.json
+│   ├── ingest_rules.py           # Converts rule pack to rules_db.json
+│   └── ci_gatekeeper.py          # CI/CD gatekeeper script for deployment blocking
 │
 ├── tests/                         # Test suite
 │   ├── __init__.py
@@ -261,7 +271,7 @@ Eura/
 **Purpose**: API endpoint definitions and request handling.
 
 **Key Functions**:
-- `parse_repo_url()`: Extracts owner/repo from GitHub URLs
+- `parse_repo_url()`: Robustly extracts owner/repo from various GitHub URL formats (handles URLs with/without trailing slashes, .git extension, direct owner/repo format)
 - `scan_repo()`: Legacy `/scan-repo` endpoint (returns ScanResponse)
 - `run_scan_v1()`: Phase 0 `/v1/scans/run` endpoint (returns ScanResultV1)
 - `root()`: Health check endpoint
@@ -269,7 +279,9 @@ Eura/
 
 **Inputs**: HTTP requests with JSON bodies
 **Outputs**: JSON responses (ScanResponse or ScanResultV1)
-**Invariants**: All endpoints validate installation_id, repo_url format
+**Invariants**: 
+- `installation_id` is optional (public repos don't require it)
+- `repo_url` format is validated and parsed robustly
 
 **Where Used**: Called by FastAPI router, invoked by frontend HTTP requests
 
@@ -292,7 +304,7 @@ Eura/
 
 **Inputs**: 
 - `repo_name`: "owner/repo" format
-- `installation_id`: GitHub App installation ID
+- `installation_id`: Optional GitHub App installation ID (None for public repos)
 - `project_id`: Optional UUID for persistence
 - `max_files`: Optional file limit
 - `repo_url`: Repository URL/identifier
@@ -305,6 +317,7 @@ Eura/
 - `evaluated_at` is set once and reused in persistence
 - Verdict is deterministic based on rule failures
 - Ephemeral scans (no project_id) still return valid ScanResultV1
+- Supports both public and private repository scanning
 
 **Where Used**: Called by API endpoints (`/scan-repo`, `/v1/scans/run`)
 
@@ -397,7 +410,9 @@ Eura/
 **Purpose**: GitHub API client and repository file operations.
 
 **Key Functions**:
-- `get_github_client()`: Authenticates as GitHub App Installation, returns PyGithub client
+- `get_github_client()`: Returns PyGithub client with flexible authentication:
+  - **Public Mode** (installation_id=None): Uses GITHUB_TOKEN if available (5,000 req/hour), otherwise unauthenticated (60 req/hour)
+  - **GitHub App Mode** (installation_id provided): Authenticates as GitHub App Installation
 - `list_repo_files()`: Recursively lists all files in repository
 - `read_repo_file()`: Reads file content with size limits and encoding handling
 - `get_repo_commit_hash()`: Fetches HEAD commit SHA
@@ -405,13 +420,14 @@ Eura/
 - `should_skip_path()`: Checks if path should be skipped (node_modules, .git, etc.)
 - `truncate_for_llm()`: Truncates content for LLM while preserving context
 
-**Inputs**: Repository object, file paths
+**Inputs**: Repository object, file paths, optional installation_id
 **Outputs**: File lists, file content, commit hashes
 
 **Invariants**:
 - Files exceeding MAX_FILE_BYTES return None (skipped)
 - Content is truncated to MAX_CHARS_PER_FILE for LLM
 - Encoding errors are handled gracefully (errors="ignore")
+- 404 errors are handled gracefully with clear error messages suggesting installation_id for private repos
 
 **Where Used**: Called by `execute_scan()` for repository access
 
@@ -704,9 +720,16 @@ Eura/
 ### Common Failure Modes and Debugging
 
 #### Repository Fetch Fails
-- **Symptom**: 404 error "Repo not accessible"
-- **Causes**: Invalid repo_name, installation_id doesn't have access, private repo without permissions
-- **Debug**: Check GitHub App installation has access to repository, verify repo_name format
+- **Symptom**: 404 error "Repository not found or not accessible"
+- **Causes**: 
+  - Invalid repo_name format
+  - Private repo without installation_id (public repos can be scanned without installation_id)
+  - installation_id doesn't have access to repository
+  - Repository doesn't exist
+- **Debug**: 
+  - For public repos: Verify repo_name format, ensure repository is public
+  - For private repos: Check GitHub App installation has access to repository, verify installation_id is correct
+  - Check error message for specific guidance
 
 #### Dependency Parsing Fails
 - **Symptom**: No dependencies extracted, warning in logs
@@ -737,6 +760,21 @@ Eura/
 - **Structured Logging**: Python `logging` module with logger name "repo-scanner"
 - **Log Levels**: INFO (normal flow), WARNING (non-fatal issues), ERROR (failures), DEBUG (detailed tracing)
 - **Key Log Points**: Scan start, repo fetch, file counts, dependency extraction, findings count, compliance evaluation, scan completion
+- **Authentication Mode**: Logs indicate "public mode" vs "GitHub App mode" for debugging
+
+### CI/CD Integration
+
+**CI Gatekeeper Script** (`scripts/ci_gatekeeper.py`):
+- Simulates a CI/CD pipeline step that calls the Phase 0 API contract
+- Blocks deployment (exit code 1) if verdict is SHIP_BLOCKED
+- Allows deployment (exit code 0) if verdict is SHIP_ALLOWED
+- Fails closed (exit code 1) if API is unavailable or returns errors
+- Usage:
+  ```bash
+  python scripts/ci_gatekeeper.py --repo_url owner/repo --environment production
+  python scripts/ci_gatekeeper.py --repo_url owner/repo --environment production --installation_id 12345
+  python scripts/ci_gatekeeper.py --repo_url owner/repo --environment production --api_url http://api.eura.com
+  ```
 
 ---
 

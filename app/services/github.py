@@ -56,8 +56,34 @@ def get_private_key_pem() -> str:
     raise ValueError("GITHUB_PRIVATE_KEY must be PEM content or a valid file path")
 
 
-def get_github_client(installation_id: int) -> Github:
-    """Get authenticated GitHub client for installation."""
+def get_github_client(installation_id: Optional[int] = None) -> Github:
+    """
+    Get authenticated GitHub client.
+    
+    Args:
+        installation_id: Optional GitHub App installation ID. If None, uses public access
+                        or GITHUB_TOKEN from environment variables.
+    
+    Returns:
+        Authenticated PyGithub client
+    
+    Raises:
+        ValueError: If authentication fails
+    """
+    # Public mode: No installation_id provided
+    if installation_id is None:
+        # Check for personal access token in environment
+        github_token = os.getenv("GITHUB_TOKEN")
+        if github_token:
+            logger.info("Using GITHUB_TOKEN for public repository access")
+            return Github(github_token)
+        else:
+            # Unauthenticated public access (rate limited to 60 requests/hour)
+            logger.info("Using unauthenticated GitHub client for public repository access")
+            logger.warning("Unauthenticated access is rate-limited. Consider setting GITHUB_TOKEN for higher limits.")
+            return Github()
+    
+    # GitHub App mode: installation_id provided
     app_id = int(GITHUB_APP_ID)
     private_key_pem = get_private_key_pem()
 

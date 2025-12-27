@@ -1,4 +1,5 @@
 """API routes."""
+from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException
 from starlette.responses import Response
 from app.core.logger import logger
@@ -17,11 +18,13 @@ async def options_preflight(path: str):
 
 def parse_repo_url(repo_url: str) -> str:
     """
-    Parse repository URL to extract owner/repo format.
+    Robustly extracts 'owner/repo' from various GitHub URL formats.
     
     Handles:
-    - Full GitHub URLs: https://github.com/owner/repo -> owner/repo
-    - Already in owner/repo format: owner/repo -> owner/repo
+    - https://github.com/owner/repo
+    - https://github.com/owner/repo/
+    - https://github.com/owner/repo.git
+    - owner/repo
     
     Args:
         repo_url: Repository URL or identifier
@@ -32,25 +35,29 @@ def parse_repo_url(repo_url: str) -> str:
     Raises:
         HTTPException: If repo_url format is invalid
     """
-    repo_url = repo_url.strip()
+    # Clean whitespace
+    clean_url = repo_url.strip()
     
-    # Handle full GitHub URLs
-    if "github.com" in repo_url:
-        # Extract owner/repo from URL
-        parts = repo_url.split("github.com/")
-        if len(parts) > 1:
-            repo_path = parts[1].rstrip("/").rstrip(".git")
-            if "/" in repo_path:
-                return repo_path
+    # Handle "owner/repo" input directly
+    if "github.com" not in clean_url and len(clean_url.split("/")) == 2:
+        return clean_url
     
-    # Already in owner/repo format
-    if "/" in repo_url:
-        return repo_url
+    # Handle full URLs
+    parsed = urlparse(clean_url)
+    path = parsed.path.strip("/")  # Remove leading/trailing slashes safely
     
-    raise HTTPException(
-        status_code=400,
-        detail=f"Invalid repo_url format: '{repo_url}'. Expected 'owner/repo' or GitHub URL."
-    )
+    # Remove .git extension if present
+    if path.endswith(".git"):
+        path = path[:-4]
+    
+    # Validate that we have owner/repo format
+    if "/" not in path or len(path.split("/")) != 2:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid repo_url format: '{repo_url}'. Expected 'owner/repo' or GitHub URL."
+        )
+    
+    return path
 
 
 @router.post("/scan-repo", response_model=ScanResponse)
@@ -81,17 +88,14 @@ async def run_scan_v1(request: ScanRunRequestV1):
         # Parse repo_url to extract owner/repo format
         repo_name = parse_repo_url(request.repo_url)
         
-        # Validate installation_id is provided
-        if request.installation_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail="installation_id is required for repository access"
-            )
+        # Note: installation_id is optional - if None, uses public/unauthenticated access
+        # Public repos can be scanned without installation_id
+        # Private repos require installation_id
         
         # Execute scan returns ScanResultV1 directly (Phase 0 API contract)
         scan_result = await execute_scan(
             repo_name=repo_name,
-            installation_id=request.installation_id,
+            installation_id=request.installation_id,  # Can be None for public repos
             project_id=None,  # Ephemeral scan for v1 endpoint
             max_files=None,
             repo_url=request.repo_url,
