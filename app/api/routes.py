@@ -1,34 +1,10 @@
 """API routes."""
-import time
-import uuid
-from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from starlette.responses import Response
-from app.core.config import MAX_FILES, MAX_FILE_BYTES, supabase
 from app.core.logger import logger
-from app.schemas.requests import ScanRepoRequest, ScanResponse, ComplianceReport, RuleResult
-from app.models.domain import Finding, Evidence
-from app.services.github import (
-    get_github_client,
-    list_repo_files,
-    read_repo_file,
-    is_text_file,
-    should_skip_path,
-    get_repo_commit_hash,
-)
-from app.services.llm import analyze_file_with_llm
-from app.services.dependencies import extract_dependencies
-from app.services.compliance import evaluate_repo
-from app.schemas.requests import Dependency
-from app.services.database import (
-    create_scan_record,
-    update_scan_success,
-    update_scan_failure,
-    update_project_last_scan,
-    insert_findings,
-    bulk_insert_dependencies,
-    save_compliance_report,
-)
+from app.schemas.requests import ScanRepoRequest, ScanResponse
+from app.services.scan_executor import execute_scan, convert_scan_result_v1_to_scan_response
+from app.schemas.scan_result_v1 import ScanRunRequestV1, ScanResultV1
 
 router = APIRouter()
 
@@ -39,279 +15,100 @@ async def options_preflight(path: str):
     return Response(status_code=204)
 
 
+def parse_repo_url(repo_url: str) -> str:
+    """
+    Parse repository URL to extract owner/repo format.
+    
+    Handles:
+    - Full GitHub URLs: https://github.com/owner/repo -> owner/repo
+    - Already in owner/repo format: owner/repo -> owner/repo
+    
+    Args:
+        repo_url: Repository URL or identifier
+    
+    Returns:
+        Repository name in owner/repo format
+    
+    Raises:
+        HTTPException: If repo_url format is invalid
+    """
+    repo_url = repo_url.strip()
+    
+    # Handle full GitHub URLs
+    if "github.com" in repo_url:
+        # Extract owner/repo from URL
+        parts = repo_url.split("github.com/")
+        if len(parts) > 1:
+            repo_path = parts[1].rstrip("/").rstrip(".git")
+            if "/" in repo_path:
+                return repo_path
+    
+    # Already in owner/repo format
+    if "/" in repo_url:
+        return repo_url
+    
+    raise HTTPException(
+        status_code=400,
+        detail=f"Invalid repo_url format: '{repo_url}'. Expected 'owner/repo' or GitHub URL."
+    )
+
+
 @router.post("/scan-repo", response_model=ScanResponse)
 async def scan_repo(request: ScanRepoRequest):
-    """Scan a repository for security issues."""
-    scan_id: Optional[str] = None
-    start_time = time.time()
+    """Scan a repository for security issues (legacy endpoint)."""
+    # Execute scan returns ScanResultV1 (Phase 0 contract)
+    scan_result = await execute_scan(
+        repo_name=request.repo_name,
+        installation_id=request.installation_id,
+        project_id=request.project_id,
+        max_files=request.max_files,
+        repo_url=request.repo_name,
+        environment="dev"  # Default for legacy endpoint
+    )
+    # Convert back to ScanResponse for backward compatibility
+    return convert_scan_result_v1_to_scan_response(scan_result)
+
+
+@router.post("/v1/scans/run", response_model=ScanResultV1)
+async def run_scan_v1(request: ScanRunRequestV1):
+    """
+    V1 API endpoint for running a repository scan.
     
+    Returns a verdict-first ScanResultV1 response with compliance evaluation.
+    The endpoint delegates to execute_scan() which returns ScanResultV1 directly.
+    """
     try:
-        logger.info("Starting scan: project_id=%s, repo_name=%s", request.project_id, request.repo_name)
+        # Parse repo_url to extract owner/repo format
+        repo_name = parse_repo_url(request.repo_url)
         
-        if "/" not in request.repo_name:
-            raise HTTPException(status_code=400, detail="repo_name must be in format 'owner/repo'")
-
-        max_files = request.max_files or MAX_FILES
-
-        logger.info("Fetching GitHub client for installation_id=%d", request.installation_id)
-        github_client = get_github_client(request.installation_id)
-        
-        try:
-            logger.info("Fetching repository: %s", request.repo_name)
-            repo = github_client.get_repo(request.repo_name)
-            logger.info("Repository fetched successfully")
-        except Exception as e:
-            if request.project_id and scan_id and supabase:
-                duration_ms = int((time.time() - start_time) * 1000)
-                try:
-                    update_scan_failure(scan_id, duration_ms, f"Repo not accessible: {e}")
-                except Exception:
-                    pass
-            raise HTTPException(status_code=404, detail=f"Repo not accessible: {e}")
-
-        # Get commit hash (HEAD)
-        commit_hash = get_repo_commit_hash(repo)
-        if commit_hash:
-            logger.info("Repository commit hash: %s", commit_hash)
-        else:
-            logger.warning("Could not determine commit hash")
-
-        # Create scan record (only if project_id is provided and Supabase is configured)
-        if request.project_id and supabase:
-            try:
-                scan_id = create_scan_record(
-                    project_id=request.project_id,
-                    repo_name=request.repo_name,
-                    installation_id=request.installation_id,
-                    commit_hash=commit_hash
-                )
-                logger.info("Created scan record: scan_id=%s", scan_id)
-            except Exception as e:
-                logger.warning("Failed to create scan record (continuing without persistence): %s", e)
-                scan_id = None
-        else:
-            if not request.project_id:
-                logger.info("Ephemeral scan: project_id not provided, scan will not be persisted")
-            elif not supabase:
-                logger.warning("Supabase not configured: scan will not be persisted")
-            scan_id = None
-
-        # List all files
-        logger.info("Listing repository files (max_files=%d)", max_files)
-        try:
-            all_files = list_repo_files(repo, max_files)
-        except Exception as e:
-            if request.project_id and scan_id and supabase:
-                duration_ms = int((time.time() - start_time) * 1000)
-                try:
-                    update_scan_failure(scan_id, duration_ms, f"Failed to fetch repo contents: {e}")
-                except Exception:
-                    pass
-            raise HTTPException(status_code=500, detail=f"Failed to fetch repo contents: {e}")
-
-        # Filter to text files
-        text_files = [p for p in all_files if is_text_file(p) and not should_skip_path(p)]
-        text_files = text_files[:max_files]
-        
-        logger.info("Files to analyze: total=%d, text=%d, will analyze=%d", 
-                   len(all_files), len(text_files), min(len(text_files), max_files))
-
-        findings: List[Finding] = []
-        dependencies: List[Dependency] = []
-        files_processed = 0
-        files_failed = 0
-
-        for file_path in text_files:
-            try:
-                content = read_repo_file(repo, file_path)
-                
-                if content is None:
-                    # File was skipped due to size
-                    findings.append(
-                        Finding(
-                            id=str(uuid.uuid4()),
-                            title="File skipped due to size limit",
-                            severity="info",
-                            confidence=1.0,
-                            summary=f"Skipped {file_path} because it exceeds size limit.",
-                            details=f"Limit: {MAX_FILE_BYTES} bytes.",
-                            evidence=[Evidence(file=file_path)],
-                            recommendation="Increase MAX_FILE_BYTES if you want to scan large files.",
-                            category="other",
-                        )
-                    )
-                    continue
-
-                # Check if this is a dependency manifest file
-                file_lower = file_path.lower()
-                if any(file_lower.endswith(manifest) for manifest in ["requirements.txt", "package.json", "pyproject.toml"]):
-                    logger.debug("Extracting dependencies from: %s", file_path)
-                    try:
-                        deps = extract_dependencies(file_path, content)
-                        dep_objects = [Dependency(**dep) for dep in deps]
-                        dependencies.extend(dep_objects)
-                        
-                        # Save dependencies immediately (even if LLM scan fails later)
-                        if request.project_id and supabase and scan_id and dep_objects:
-                            try:
-                                bulk_insert_dependencies(
-                                    scan_id=scan_id,
-                                    project_id=request.project_id,
-                                    dependencies=dep_objects
-                                )
-                                logger.debug("Saved %d dependencies from %s", len(dep_objects), file_path)
-                            except Exception as e:
-                                logger.warning("Failed to save dependencies from %s (non-fatal): %s", file_path, str(e)[:200])
-                    except Exception as e:
-                        logger.warning("Failed to extract dependencies from %s: %s", file_path, str(e)[:200])
-
-                logger.debug("Analyzing file: %s", file_path)
-                file_findings = await analyze_file_with_llm(file_path, content)
-                findings.extend(file_findings)
-                files_processed += 1
-                
-                if len(file_findings) > 0:
-                    logger.debug("Found %d issues in %s", len(file_findings), file_path)
-
-            except Exception as e:
-                files_failed += 1
-                logger.warning("Failed processing file %s: %s", file_path, str(e)[:200])
-                findings.append(
-                    Finding(
-                        id=str(uuid.uuid4()),
-                        title="File processing error",
-                        severity="info",
-                        confidence=0.6,
-                        summary=f"Could not analyze {file_path}.",
-                        details=str(e)[:1000],
-                        evidence=[Evidence(file=file_path)],
-                        recommendation="Check repository permissions and file encoding.",
-                        category="other",
-                    )
-                )
-        
-        logger.info("File analysis complete: processed=%d, failed=%d, findings=%d, dependencies=%d", 
-                   files_processed, files_failed, len(findings), len(dependencies))
-
-        # Insert findings into database (only if project_id is provided and Supabase is configured)
-        if request.project_id and supabase:
-            logger.info("Inserting findings into database: count=%d", len(findings))
-            try:
-                insert_findings(scan_id=scan_id, project_id=request.project_id, findings=findings)
-            except Exception as e:
-                logger.error("Failed to insert findings (non-fatal): %s", e)
-        else:
-            if not request.project_id:
-                logger.info("Ephemeral scan: skipping findings persistence (no project_id)")
-            else:
-                logger.warning("Skipping findings persistence: Supabase not configured")
-
-        # Update scan record on success (only if project_id is provided and Supabase is configured)
-        duration_ms = int((time.time() - start_time) * 1000)
-        if request.project_id and supabase:
-            try:
-                update_scan_success(
-                    scan_id=scan_id,
-                    duration_ms=duration_ms,
-                    total_files=len(all_files),
-                    analyzed_files=len(text_files),
-                    commit_hash=commit_hash
-                )
-                update_project_last_scan(request.project_id)
-            except Exception as e:
-                logger.error("Failed to update scan status (non-fatal): %s", e)
-
-        if request.project_id:
-            logger.info("Scan completed successfully: scan_id=%s, duration_ms=%d, findings=%d", 
-                       scan_id, duration_ms, len(findings))
-        else:
-            logger.info("Ephemeral scan completed successfully: duration_ms=%d, findings=%d", 
-                       duration_ms, len(findings))
-
-        # Evaluate compliance rules
-        compliance_report = None
-        try:
-            logger.info("Evaluating compliance rules...")
-            compliance_report_dict = await evaluate_repo(
-                findings=findings,
-                dependencies=dependencies,
-                repo_files=all_files,  # Use all_files to check for documentation files
-                repo=repo,
-                read_file_func=read_repo_file
+        # Validate installation_id is provided
+        if request.installation_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="installation_id is required for repository access"
             )
-            # Convert to Pydantic model
-            compliance_report = ComplianceReport(
-                rule_results=[
-                    RuleResult(**result) for result in compliance_report_dict["rule_results"]
-                ],
-                evaluated_at=compliance_report_dict["evaluated_at"],
-                total_rules=compliance_report_dict["total_rules"],
-                passed=compliance_report_dict["passed"],
-                failed=compliance_report_dict["failed"],
-                unknown=compliance_report_dict["unknown"],
-                not_applicable=compliance_report_dict["not_applicable"]
-            )
-            logger.info("Compliance evaluation complete: passed=%d, failed=%d, unknown=%d, not_applicable=%d",
-                       compliance_report.passed, compliance_report.failed, 
-                       compliance_report.unknown, compliance_report.not_applicable)
-            
-            # Save compliance report to database (only if project_id is provided and Supabase is configured)
-            if request.project_id and supabase and scan_id:
-                logger.info("Saving compliance report to database...")
-                try:
-                    report_id = save_compliance_report(
-                        scan_id=scan_id,
-                        project_id=request.project_id,
-                        compliance_report=compliance_report
-                    )
-                    if report_id:
-                        logger.info("Saved compliance report: report_id=%s", report_id)
-                    else:
-                        logger.warning("Failed to save compliance report (returned None)")
-                except Exception as e:
-                    logger.error("Failed to save compliance report (non-fatal): %s", str(e)[:200])
-            else:
-                if not request.project_id:
-                    logger.info("Ephemeral scan: skipping compliance report persistence (no project_id)")
-                elif not supabase:
-                    logger.warning("Skipping compliance report persistence: Supabase not configured")
-                elif not scan_id:
-                    logger.warning("Skipping compliance report persistence: no scan_id")
-                    
-        except Exception as e:
-            logger.error("Failed to evaluate compliance rules (non-fatal): %s", str(e)[:200])
-            # Continue without compliance report if evaluation fails
-
-        return ScanResponse(
-            success=True,
-            repo_name=request.repo_name,
-            total_files=len(all_files),
-            analyzed_files=len(text_files),
-            findings=findings,
-            commit_hash=commit_hash,
-            dependencies=dependencies,
-            compliance_report=compliance_report,
+        
+        # Execute scan returns ScanResultV1 directly (Phase 0 API contract)
+        scan_result = await execute_scan(
+            repo_name=repo_name,
+            installation_id=request.installation_id,
+            project_id=None,  # Ephemeral scan for v1 endpoint
+            max_files=None,
+            repo_url=request.repo_url,
+            environment=request.environment
         )
-
+        
+        return scan_result
+        
     except HTTPException:
-        # HTTPExceptions are already properly formatted, but update scan status
-        if request.project_id and scan_id and supabase:
-            duration_ms = int((time.time() - start_time) * 1000)
-            try:
-                update_scan_failure(scan_id, duration_ms, "HTTP error occurred")
-            except Exception:
-                pass
+        # Re-raise HTTPExceptions as-is
         raise
     except Exception as e:
-        logger.exception("scan_repo crashed")
-        if request.project_id and scan_id and supabase:
-            duration_ms = int((time.time() - start_time) * 1000)
-            error_msg = f"Server error: {str(e)[:500]}"
-            try:
-                update_scan_failure(scan_id, duration_ms, error_msg)
-            except Exception:
-                pass
-        raise HTTPException(status_code=500, detail=f"Server error: {e}")
+        logger.exception("run_scan_v1 crashed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Scan failed: {str(e)[:200]}"
+        )
 
 
 @router.get("/")
