@@ -3,6 +3,7 @@
 This module defines the verdict-first, deterministic response model that drives the UI.
 All models use timezone-aware UTC datetimes and strict typing for deterministic behavior.
 """
+import re
 from datetime import datetime, timezone
 from typing import List, Optional, Literal, Dict, Any
 from pydantic import BaseModel, Field, field_validator
@@ -91,6 +92,27 @@ class ScanRunRequestV1(BaseModel):
         None,
         description="GitHub App installation ID (required for private repos, optional for public)"
     )
+    
+    @field_validator('repo_url')
+    @classmethod
+    def validate_repo_url(cls, v: str) -> str:
+        """
+        Validate repository URL format.
+        
+        Allows standard "owner/repo" or full GitHub URLs.
+        Regex checks for: (optional https://github.com/) + owner + / + repo
+        
+        Raises:
+            ValueError: If repo_url format is invalid
+        """
+        # Allow standard "owner/repo" or full GitHub URLs
+        # Regex checks for: (optional https://github.com/) + owner + / + repo
+        pattern = r'^(https?://github\.com/)?[\w-]+/[\w.-]+/?$'
+        if not re.match(pattern, v.strip()):
+            raise ValueError(
+                'Invalid repository URL format. Must be "owner/repo" or "https://github.com/owner/repo"'
+            )
+        return v
 
 
 class ScanResultV1(BaseModel):
