@@ -118,7 +118,8 @@ async def execute_scan(
     project_id: Optional[str] = None,
     max_files: Optional[int] = None,
     repo_url: Optional[str] = None,
-    environment: Literal["dev", "staging", "production", "eu-production"] = "dev"
+    environment: Literal["dev", "staging", "production", "eu-production"] = "dev",
+    user_id: Optional[str] = None
 ) -> ScanResultV1:
     """
     Execute a repository scan and return ScanResultV1 (Phase 0 API contract object).
@@ -138,6 +139,7 @@ async def execute_scan(
         max_files: Optional max files to scan (defaults to MAX_FILES)
         repo_url: Repository URL or identifier (defaults to repo_name)
         environment: Deployment environment (defaults to "dev")
+        user_id: Optional user ID to associate scan with logged-in user
     
     Returns:
         ScanResultV1 object with verdict-first structure
@@ -202,22 +204,23 @@ async def execute_scan(
             logger.warning("Could not determine commit hash")
             commit_hash = None
 
-        # Create scan record (only if project_id is provided and Supabase is configured)
-        if project_id and supabase:
+        # Create scan record (if project_id or user_id is provided and Supabase is configured)
+        if (project_id or user_id) and supabase:
             try:
                 scan_id = create_scan_record(
                     project_id=project_id,
                     repo_name=repo_name,
                     installation_id=installation_id,
-                    commit_hash=commit_hash
+                    commit_hash=commit_hash,
+                    user_id=user_id
                 )
-                logger.info("Created scan record: scan_id=%s", scan_id)
+                logger.info("Created scan record: scan_id=%s, user_id=%s", scan_id, user_id)
             except Exception as e:
                 logger.warning("Failed to create scan record (continuing without persistence): %s", e)
                 scan_id = None
         else:
-            if not project_id:
-                logger.info("Ephemeral scan: project_id not provided, scan will not be persisted")
+            if not project_id and not user_id:
+                logger.info("Ephemeral scan: project_id and user_id not provided, scan will not be persisted")
             elif not supabase:
                 logger.warning("Supabase not configured: scan will not be persisted")
             scan_id = None

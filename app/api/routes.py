@@ -99,7 +99,8 @@ async def run_scan_v1(request: ScanRunRequestV1):
             project_id=None,  # Ephemeral scan for v1 endpoint
             max_files=None,
             repo_url=request.repo_url,
-            environment=request.environment
+            environment=request.environment,
+            user_id=request.user_id  # Associate scan with logged-in user
         )
         
         return scan_result

@@ -82,6 +82,7 @@ class ScanRunRequestV1(BaseModel):
         repo_url: Repository URL or identifier (e.g., "owner/repo" or full GitHub URL)
         environment: Deployment environment (defaults to "dev")
         installation_id: Optional GitHub App installation ID (required for private repos)
+        user_id: Optional user ID to associate scan with logged-in user
     """
     repo_url: str = Field(..., description="Repository URL or identifier (e.g., 'owner/repo')")
     environment: Literal["dev", "staging", "production", "eu-production"] = Field(
@@ -91,6 +92,10 @@ class ScanRunRequestV1(BaseModel):
     installation_id: Optional[int] = Field(
         None,
         description="GitHub App installation ID (required for private repos, optional for public)"
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID to associate scan with logged-in user (for scan history)"
     )
     
     @field_validator('repo_url')

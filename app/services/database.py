@@ -30,17 +30,51 @@ def parse_line_number(lines_str: Optional[str]) -> Optional[int]:
         return None
 
 
-def create_scan_record(project_id: str, repo_name: str, installation_id: int, commit_hash: Optional[str] = None) -> str:
-    """Create a scan record and return scan_id."""
+def create_scan_record(
+    repo_name: str,
+    installation_id: Optional[int] = None,
+    commit_hash: Optional[str] = None,
+    project_id: Optional[str] = None,
+    user_id: Optional[str] = None
+) -> str:
+    """
+    Create a scan record and return scan_id.
+    
+    Args:
+        project_id: Optional project ID for persistence (legacy support)
+        repo_name: Repository name in format "owner/repo" (required)
+        installation_id: Optional GitHub App installation ID
+        commit_hash: Optional Git commit SHA
+        user_id: Optional user ID to associate scan with logged-in user
+    
+    Returns:
+        scan_id: UUID of the created scan record
+    
+    Raises:
+        HTTPException: If Supabase is not configured or record creation fails
+        ValueError: If neither project_id nor user_id is provided, or repo_name is missing
+    """
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not configured")
+    
+    if not repo_name:
+        raise ValueError("repo_name is required")
+    
+    if not project_id and not user_id:
+        raise ValueError("Either project_id or user_id must be provided")
+    
     try:
         record_data = {
-            "project_id": project_id,
             "status": "processing",
             "repo_name": repo_name,
-            "installation_id": installation_id,
         }
+        
+        if project_id:
+            record_data["project_id"] = project_id
+        if user_id:
+            record_data["user_id"] = user_id
+        if installation_id is not None:
+            record_data["installation_id"] = installation_id
         if commit_hash:
             record_data["commit_hash"] = commit_hash
         
@@ -50,7 +84,7 @@ def create_scan_record(project_id: str, repo_name: str, installation_id: int, co
             raise ValueError("Failed to create scan record")
         
         scan_id = result.data[0]["id"]
-        logger.info("Created scan record: scan_id=%s, project_id=%s", scan_id, project_id)
+        logger.info("Created scan record: scan_id=%s, project_id=%s, user_id=%s", scan_id, project_id, user_id)
         return scan_id
     except Exception as e:
         logger.error("Failed to create scan record: %s", e)
