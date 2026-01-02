@@ -109,6 +109,7 @@ from app.services.database import (
     insert_findings,
     bulk_insert_dependencies,
     save_compliance_report,
+    get_or_create_project,
 )
 
 
@@ -152,7 +153,16 @@ async def execute_scan(
     start_time = time.time()
     
     try:
-        logger.info("Starting scan: project_id=%s, repo_name=%s", project_id, repo_name)
+        logger.info("Starting scan: project_id=%s, repo_name=%s, user_id=%s", project_id, repo_name, user_id)
+        
+        # Auto-create project if project_id is None but user_id is present
+        if project_id is None and user_id and supabase:
+            try:
+                project_id = get_or_create_project(user_id=user_id, repo_url=repo_url or repo_name)
+                logger.info("Auto-created project for ad-hoc scan: project_id=%s", project_id)
+            except Exception as e:
+                logger.warning("Failed to auto-create project (continuing without persistence): %s", e)
+                project_id = None
         
         if "/" not in repo_name:
             raise HTTPException(status_code=400, detail="repo_name must be in format 'owner/repo'")
@@ -204,8 +214,9 @@ async def execute_scan(
             logger.warning("Could not determine commit hash")
             commit_hash = None
 
-        # Create scan record (if project_id or user_id is provided and Supabase is configured)
-        if (project_id or user_id) and supabase:
+        # Create scan record (if project_id is available and Supabase is configured)
+        # Note: project_id should be set by now if user_id was provided (via auto-creation)
+        if project_id and supabase:
             try:
                 scan_id = create_scan_record(
                     project_id=project_id,
@@ -214,13 +225,13 @@ async def execute_scan(
                     commit_hash=commit_hash,
                     user_id=user_id
                 )
-                logger.info("Created scan record: scan_id=%s, user_id=%s", scan_id, user_id)
+                logger.info("Created scan record: scan_id=%s, project_id=%s, user_id=%s", scan_id, project_id, user_id)
             except Exception as e:
                 logger.warning("Failed to create scan record (continuing without persistence): %s", e)
                 scan_id = None
         else:
-            if not project_id and not user_id:
-                logger.info("Ephemeral scan: project_id and user_id not provided, scan will not be persisted")
+            if not project_id:
+                logger.info("Ephemeral scan: project_id not available, scan will not be persisted")
             elif not supabase:
                 logger.warning("Supabase not configured: scan will not be persisted")
             scan_id = None

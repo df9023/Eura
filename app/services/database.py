@@ -129,6 +129,57 @@ def update_scan_failure(scan_id: str, duration_ms: int, error_msg: str):
         # Don't raise - we're already in error handling
 
 
+def get_or_create_project(user_id: str, repo_url: str) -> str:
+    """
+    Get or create a project for a user and repository.
+    
+    Checks if a project exists for this user and repo_url.
+    If yes, returns the existing project_id.
+    If no, creates a new project and returns its project_id.
+    
+    Args:
+        user_id: User ID to associate the project with
+        repo_url: Repository URL (used as project name)
+    
+    Returns:
+        project_id: UUID of the project (existing or newly created)
+    
+    Raises:
+        HTTPException: If Supabase is not configured or project creation fails
+    """
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    
+    try:
+        # Check if project already exists for this user and repo
+        result = supabase.table("projects").select("id").eq("user_id", user_id).eq("repo_url", repo_url).execute()
+        
+        if result.data and len(result.data) > 0:
+            project_id = result.data[0]["id"]
+            logger.info("Found existing project: project_id=%s, user_id=%s, repo_url=%s", project_id, user_id, repo_url)
+            return project_id
+        
+        # Project doesn't exist, create a new one
+        project_data = {
+            "user_id": user_id,
+            "repo_url": repo_url,
+            "name": repo_url,  # Use repo_url as the project name for now
+        }
+        
+        result = supabase.table("projects").insert(project_data).execute()
+        
+        if not result.data or len(result.data) == 0:
+            raise ValueError("Failed to create project")
+        
+        project_id = result.data[0]["id"]
+        logger.info("Created new project: project_id=%s, user_id=%s, repo_url=%s", project_id, user_id, repo_url)
+        return project_id
+        
+    except Exception as e:
+        logger.error("Failed to get or create project: %s", e)
+        raise
+
+
 def update_project_last_scan(project_id: str):
     """Update project's last_scan_at timestamp."""
     if not supabase:
