@@ -15,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Add parent directory to path to import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -46,31 +46,30 @@ def extract_rule_sections(text: str) -> List[Dict[str, str]]:
     rules = []
     
     # Pattern to match rule headers: "RULE CRA-BASE-XXX: Title"
-    rule_pattern = re.compile(r"RULE (CRA-BASE-\d{3}): (.+?)\n={80,}")
+    # Format: "RULE CRA-BASE-001: Title\n================================================================================"
+    rule_pattern = re.compile(r"RULE (CRA-BASE-\d{3}): (.+?)\n={80,}", re.MULTILINE)
     
-    # Split text by rule sections
-    sections = re.split(r"RULE CRA-BASE-\d{3}:", text)
+    # Find all rule matches
+    matches = list(rule_pattern.finditer(text))
     
-    for i, section in enumerate(sections[1:], 1):  # Skip first section (intro)
-        # Extract rule ID and title from the section header
-        header_match = re.search(r"(CRA-BASE-\d{3}): (.+?)\n", section)
-        if not header_match:
-            continue
-            
-        rule_id = header_match.group(1)
-        title = header_match.group(2).strip()
+    for i, match in enumerate(matches):
+        rule_id = match.group(1)
+        title = match.group(2).strip()
+        start_pos = match.end()  # Start after the separator line
         
         # Find the end of this rule (next rule or remediation catalog)
-        next_rule_match = re.search(r"\nRULE CRA-BASE-\d{3}:", section)
-        remediation_match = re.search(r"\nREMEDIATION CATALOG", section)
+        if i + 1 < len(matches):
+            # Next rule starts here
+            end_pos = matches[i + 1].start()
+        else:
+            # Last rule - find remediation catalog or end of text
+            remediation_match = re.search(r"\nREMEDIATION CATALOG", text[start_pos:])
+            if remediation_match:
+                end_pos = start_pos + remediation_match.start()
+            else:
+                end_pos = len(text)
         
-        end_pos = len(section)
-        if next_rule_match:
-            end_pos = min(end_pos, next_rule_match.start())
-        if remediation_match:
-            end_pos = min(end_pos, remediation_match.start())
-        
-        rule_text = section[:end_pos].strip()
+        rule_text = text[start_pos:end_pos].strip()
         
         rules.append({
             "rule_id": rule_id,
@@ -233,7 +232,7 @@ def build_rules_database(rules: List[Dict[str, Any]], remediation_catalog: Dict[
     """Build the complete rules database JSON structure."""
     return {
         "schema_version": "0.1",
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "description": "EURA CRA Compliance Rules Database - Generated from cra_rule_pack_v0.1.txt",
         "rules": rules,
         "remediation_catalog": remediation_catalog,

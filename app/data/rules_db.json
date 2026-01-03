@@ -1,0 +1,1229 @@
+{
+  "schema_version": "0.1",
+  "generated_at": "2026-01-03T12:38:50.787507Z",
+  "description": "EURA CRA Compliance Rules Database - Generated from cra_rule_pack_v0.1.txt",
+  "rules": [
+    {
+      "rule_id": "CRA-BASE-001",
+      "title": "Security Policy Documentation",
+      "description_short": "Repository must have a SECURITY.md file for reporting security vulnerabilities.",
+      "description_long": "Your repository should have a SECURITY.md file (or equivalent) that explains how users can report security vulnerabilities. This demonstrates commitment to coordinated vulnerability disclosure, which CRA requires.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "has_security_policy",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "SECURITY.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": ".github/SECURITY.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/SECURITY.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "security.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "README.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/security.md",
+          "required": false
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "medium",
+        "likelihood": "medium",
+        "overall": "medium"
+      },
+      "remediation_ids": [
+        "REM-001"
+      ],
+      "references": {
+        "article": "Article 10(1)",
+        "note": "Security requirements"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-002",
+      "title": "Dependency Inventory (SBOM)",
+      "description_short": "Maintain an inventory of all dependencies for transparency in your product.",
+      "description_long": "You must maintain an inventory of all dependencies (Software Bill of Materials). CRA requires transparency about what components are in your product. Lockfiles and manifest files serve as a basic SBOM.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {
+            "signal": "dependency_count",
+            "operator": "greater_than",
+            "value": 0
+          },
+          {
+            "signal": "has_lockfile",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "requirements.txt",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "package.json",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "pyproject.toml",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "Gemfile",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "Cargo.toml",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "go.mod",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "package-lock.json",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "Pipfile.lock",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "poetry.lock",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "Gemfile.lock",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "Cargo.lock",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "go.sum",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": ".github/workflows/sbom.yml",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/dependencies.md",
+          "required": false
+        }
+      ],
+      "check_method": "dependency_analysis",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003",
+        "REM-004",
+        "REM-005"
+      ],
+      "references": {
+        "article": "Article 10(2)",
+        "note": "Transparency requirements"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-003",
+      "title": "Dependency Vulnerability Management",
+      "description_short": "Manage known vulnerabilities in dependencies to mitigate compliance risks.",
+      "description_long": "You must actively manage known vulnerabilities in dependencies. CRA requires that products address security issues promptly. Having vulnerable dependencies is a compliance risk.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "dependency_count",
+            "operator": "greater_than",
+            "value": 0
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": ".github/dependabot.yml",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": ".github/workflows/security-scan.yml",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/vulnerability-management.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "CHANGELOG.md",
+          "required": false
+        }
+      ],
+      "check_method": "dependency_analysis",
+      "severity": {
+        "impact": "high",
+        "likelihood": "high",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003"
+      ],
+      "references": {
+        "article": "CRA Article 11 - Vulnerability handling",
+        "note": ""
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-004",
+      "title": "Secure Default Configuration",
+      "description_short": "Products should be secure-by-default with no unnecessary attack surface.",
+      "description_long": "Products should be secure-by-default. Default settings should not expose unnecessary attack surface. This includes: no default passwords, secure connection settings enabled by default, minimal permissions, etc.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {
+            "signal": "has_dockerfile",
+            "operator": "exists"
+          },
+          {
+            "signal": "has_cicd_config",
+            "operator": "exists"
+          },
+          {
+            "signal": "has_default_security_config",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "content_analysis",
+          "source": "Dockerfiles",
+          "required": true
+        },
+        {
+          "type": "content_analysis",
+          "source": "config files",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": ".env.example",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "config/security.example.yml",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "Dockerfile",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/configuration.md",
+          "required": false
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003",
+        "REM-004",
+        "REM-005"
+      ],
+      "references": {
+        "article": "Article 10(1)",
+        "note": "Secure-by-design"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-005",
+      "title": "Update and Patch Management",
+      "description_short": "Process for providing security updates and patches to address vulnerabilities.",
+      "description_long": "CRA requires that products can be updated to address vulnerabilities. Evidence includes: release tags, changelog, update documentation.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "release_tag_count",
+            "operator": "greater_than",
+            "value": 0
+          },
+          {
+            "signal": "has_changelog",
+            "operator": "exists"
+          },
+          {
+            "signal": "days_since_last_update",
+            "operator": "less_than",
+            "value": 30
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "CHANGELOG.md",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "RELEASES.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": ".github/workflows/release.yml",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/updates.md",
+          "required": false
+        },
+        {
+          "type": "git_tag_presence",
+          "source": "v*.*.*",
+          "required": true
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003",
+        "REM-004",
+        "REM-005",
+        "REM-006"
+      ],
+      "references": {
+        "article": "Article 11 - Update obligations",
+        "note": "Compliance with update and patch management requirements."
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-006",
+      "title": "Security Testing in CI/CD",
+      "description_short": "Automated security testing must be part of the CI/CD process to ensure proactive security validation.",
+      "description_long": "You should have automated security testing as part of your build/deployment process. This demonstrates proactive security validation, which CRA expects.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "has_cicd_config",
+            "operator": "exists"
+          },
+          {
+            "signal": "has_security_testing",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": ".github/workflows/security.yml",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": ".github/workflows/dependency-scan.yml",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/security-testing.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": ".snyk",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": ".bandit",
+          "required": false
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002"
+      ],
+      "references": {
+        "article": "Article 10(1)"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-007",
+      "title": "Documentation of Security Features",
+      "description_short": "Products must provide adequate documentation for security-relevant features.",
+      "description_long": "Users must understand how to use your product securely. CRA requires that products provide adequate documentation. Security-relevant features should be documented.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "has_security_documentation",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "README.md",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/security.md",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/user-guide.md",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/deployment.md",
+          "required": false
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003",
+        "REM-004",
+        "REM-005"
+      ],
+      "references": {
+        "article": "Article 10(3)",
+        "note": "Documentation requirements"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-008",
+      "title": "No Hardcoded Secrets",
+      "description_short": "Secrets must never be committed to version control to avoid security risks.",
+      "description_long": "Secrets (API keys, passwords, tokens) must never be committed to version control. This is a fundamental security requirement and CRA violation risk. Applies to all repositories, especially those with CI/CD configurations where secrets often leak.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "has_cicd_config",
+            "operator": "exists"
+          },
+          {
+            "signal": "has_hardcoded_secrets",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": ".gitignore",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": ".env.example",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": ".pre-commit-config.yaml",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/secrets-management.md",
+          "required": false
+        }
+      ],
+      "check_method": "content_analysis",
+      "severity": {
+        "impact": "critical",
+        "likelihood": "high",
+        "overall": "critical"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003",
+        "REM-004",
+        "REM-005",
+        "REM-006"
+      ],
+      "references": {
+        "article": "CRA Article 10(1)",
+        "note": "Secure-by-design"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-009",
+      "title": "Dependency Pinning and Reproducibility",
+      "description_short": "Dependencies must be pinned to specific versions to ensure reproducible builds.",
+      "description_long": "Dependencies should be pinned to specific versions (not '^1.0.0' or 'latest'). This ensures reproducible builds and prevents unexpected updates that could introduce vulnerabilities.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "dependency_count",
+            "operator": "greater_than",
+            "value": 0
+          },
+          {
+            "signal": "has_lockfile",
+            "operator": "NOT"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "package.json",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "requirements.txt",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "package-lock.json",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "yarn.lock",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "Pipfile.lock",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/dependency-management.md",
+          "required": false
+        }
+      ],
+      "check_method": "dependency_analysis",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003",
+        "REM-004",
+        "REM-005"
+      ],
+      "references": {
+        "article": "Article 10(2)"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-010",
+      "title": "Container Security (Dockerfile Best Practices)",
+      "description_short": "Containers must follow security best practices including non-root users and minimal base images.",
+      "description_long": "If you use containers (Docker), they should follow security best practices: non-root user, minimal base images, no secrets, health checks, etc. This demonstrates secure-by-design principles.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "has_dockerfile",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "Dockerfile",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": ".dockerignore",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "docker-compose.yml",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/container-security.md",
+          "required": false
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [],
+      "references": {
+        "article": "CRA Article 10(1)",
+        "note": "Secure-by-design"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-011",
+      "title": "Lifecycle Management Evidence",
+      "description_short": "Demonstrate active maintenance and lifecycle plan for your product.",
+      "description_long": "You must demonstrate that your product is actively maintained and has a lifecycle plan. CRA requires products to be supported throughout their lifecycle. Evidence includes: recent commits, maintenance status, deprecation notices if applicable.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "days_since_last_update",
+            "operator": "less_than",
+            "value": 90
+          },
+          {
+            "signal": "is_archived",
+            "operator": "equals",
+            "value": false
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "README.md",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/lifecycle.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": ".github/SUPPORT.md",
+          "required": false
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [],
+      "references": {
+        "article": "CRA Article 11 - Product lifecycle obligations",
+        "note": ""
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-012",
+      "title": "Access Control Documentation",
+      "description_short": "Documentation of authentication and authorization features is required for secure access control configuration.",
+      "description_long": "If your product has authentication/authorization features, they must be documented. Users need to understand how to configure access controls securely. CRA requires adequate documentation of security features.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {
+            "signal": "has_auth_documentation",
+            "operator": "exists"
+          },
+          {
+            "signal": "has_security_policy",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "README.md",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/authentication.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/authorization.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "config/auth.example.yml",
+          "required": false
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003",
+        "REM-004"
+      ],
+      "references": {
+        "article": "Article 10(3)",
+        "note": "Documentation of security features"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-013",
+      "title": "Encryption and Data Protection",
+      "description_short": "Sensitive data must be encrypted and documented to ensure data protection.",
+      "description_long": "If your product handles sensitive data, encryption should be used and documented. CRA requires appropriate security measures for data protection. Evidence includes: encryption configuration, TLS/SSL settings, data protection documentation.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {
+            "signal": "has_encryption_config",
+            "operator": "exists"
+          },
+          {
+            "signal": "has_security_policy",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "docs/encryption.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/data-protection.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": "config/ssl.example.yml",
+          "required": false
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003",
+        "REM-004",
+        "REM-005"
+      ],
+      "references": {
+        "article": "Article 10(1)"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-014",
+      "title": "Incident Response Preparation",
+      "description_short": "Documentation on handling security incidents is required for preparedness.",
+      "description_long": "You should have documentation about how security incidents are handled. While CRA's incident reporting is primarily organizational, having documentation in the repo shows preparedness.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {
+            "signal": "has_incident_response_docs",
+            "operator": "exists"
+          },
+          {
+            "signal": "has_security_policy",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "SECURITY.md",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/incident-response.md",
+          "required": false
+        },
+        {
+          "type": "file_presence",
+          "source": ".github/SECURITY.md",
+          "required": false
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002"
+      ],
+      "references": {
+        "article": "CRA Article 11 - Incident reporting",
+        "note": "Documentation demonstrates preparedness"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-015",
+      "title": "Build and Deployment Security",
+      "description_short": "Ensure secure build and deployment processes throughout the product lifecycle.",
+      "description_long": "Your build and deployment process should be secure. This includes secure CI/CD configuration, signed artifacts, and secure deployment procedures. CRA expects security throughout the product lifecycle.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "has_cicd_config",
+            "operator": "exists"
+          },
+          {
+            "signal": "has_dockerfile",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": ".github/workflows/deploy.yml",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/deployment.md",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": ".github/workflows/release.yml",
+          "required": true
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003",
+        "REM-004",
+        "REM-005",
+        "REM-006"
+      ],
+      "references": {
+        "article": "Article 10(1)",
+        "note": "Secure development and deployment"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-016",
+      "title": "Third-Party Component Assessment",
+      "description_short": "Assess third-party components for security and compliance.",
+      "description_long": "You should assess third-party components (dependencies) for security and compliance. CRA requires knowing what's in your product. Having a process for dependency assessment demonstrates due diligence.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "dependency_count",
+            "operator": "greater_than",
+            "value": 0
+          },
+          {
+            "signal": "has_dependency_assessment",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "docs/dependency-policy.md",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/approved-dependencies.md",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": ".github/ISSUE_TEMPLATE/new-dependency.md",
+          "required": false
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003",
+        "REM-004"
+      ],
+      "references": {
+        "article": "Article 10(2)",
+        "note": "Third-party component transparency"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-017",
+      "title": "Version and Release Management",
+      "description_short": "Identify product versions and changes to support vulnerability management.",
+      "description_long": "You must be able to identify which version of your product is deployed and what changes are in each version. This supports vulnerability management and update processes required by CRA.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "has_changelog",
+            "operator": "exists"
+          },
+          {
+            "signal": "release_tag_count",
+            "operator": "greater_than",
+            "value": 0
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "package.json",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "VERSION",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "CHANGELOG.md",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "RELEASES.md",
+          "required": false
+        },
+        {
+          "type": "git_tags",
+          "source": "v*.*.*",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "docs/versioning.md",
+          "required": false
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "critical",
+        "likelihood": "high",
+        "overall": "critical"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003",
+        "REM-004",
+        "REM-005",
+        "REM-006"
+      ],
+      "references": {
+        "article": "CRA Article 11 - Version identification for updates",
+        "annex": null,
+        "note": null
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-BASE-018",
+      "title": "Secure Communication Documentation",
+      "description_short": "Secure communication (TLS/HTTPS) must be required and documented for networked products.",
+      "description_long": "If your product communicates over networks, secure communication (TLS/HTTPS) should be required and documented. CRA requires secure-by-design, which includes secure network communication.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "AND",
+        "conditions": [
+          {
+            "signal": "has_security_policy",
+            "operator": "exists"
+          }
+        ]
+      },
+      "required_evidence": [
+        {
+          "type": "file_presence",
+          "source": "docs/security.md",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "config/ssl.example.yml",
+          "required": true
+        },
+        {
+          "type": "file_presence",
+          "source": "README.md",
+          "required": true
+        }
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {
+        "impact": "high",
+        "likelihood": "medium",
+        "overall": "high"
+      },
+      "remediation_ids": [
+        "REM-001",
+        "REM-002",
+        "REM-003",
+        "REM-004",
+        "REM-005",
+        "REM-006",
+        "REM-007"
+      ],
+      "references": {
+        "article": "Article 10(1)",
+        "note": "Secure communication requirements"
+      },
+      "version": "0.1"
+    }
+  ],
+  "remediation_catalog": {
+    "REM-001": {
+      "remediation_id": "REM-001",
+      "action": "Create Security Policy Document",
+      "description": "Create Security Policy Document\n- Action: Create SECURITY.md file in repository root or .github/ directory\n- Template: Include contact email, response time commitment, scope of\n  vulnerabilities to report\n- Verification: File exists and contains security contact information\n- Timeline: Can be done immediately (1 hour)"
+    },
+    "REM-002": {
+      "remediation_id": "REM-002",
+      "action": "Implement Dependency Lockfiles",
+      "description": "Implement Dependency Lockfiles\n- Action: Generate and commit dependency lockfiles (package-lock.json,\n  Pipfile.lock, etc.)\n- Tools: npm install, pipenv lock, poetry lock\n- Verification: Lockfile exists and is committed to version control\n- Timeline: Immediate for existing projects, ongoing for new dependencies"
+    },
+    "REM-003": {
+      "remediation_id": "REM-003",
+      "action": "Set Up Dependency Vulnerability Scanning",
+      "description": "Set Up Dependency Vulnerability Scanning\n- Action: Integrate vulnerability scanning into development workflow\n- Tools: npm audit, pip-audit, Snyk, Dependabot, OWASP Dependency-Check\n- Verification: Scanning runs automatically (CI/CD or pre-commit)\n- Timeline: 1-2 days for setup, ongoing monitoring"
+    },
+    "REM-004": {
+      "remediation_id": "REM-004",
+      "action": "Remove Hardcoded Secrets",
+      "description": "Remove Hardcoded Secrets\n- Action: Audit codebase for secrets, remove them, rotate exposed secrets\n- Tools: git-secrets, truffleHog, gitleaks, GitGuardian\n- Verification: No secrets detected in scans, .env in .gitignore\n- Timeline: Immediate (rotate secrets), 1 day for cleanup"
+    },
+    "REM-005": {
+      "remediation_id": "REM-005",
+      "action": "Implement Secure Defaults",
+      "description": "Implement Secure Defaults\n- Action: Review and update default configurations to be secure\n- Steps: Remove default passwords, use environment variables, add .env.example\n- Verification: No secrets in config files, secure defaults documented\n- Timeline: 1-2 days depending on config complexity"
+    },
+    "REM-006": {
+      "remediation_id": "REM-006",
+      "action": "Add Security Testing to CI/CD",
+      "description": "Add Security Testing to CI/CD\n- Action: Add security scanning steps to CI/CD pipeline\n- Tools: CodeQL, Semgrep, Bandit, Snyk, OWASP ZAP\n- Verification: Security tests run on every PR/commit\n- Timeline: 2-3 days for initial setup"
+    },
+    "REM-007": {
+      "remediation_id": "REM-007",
+      "action": "Create Security Documentation",
+      "description": "Create Security Documentation\n- Action: Add security section to README and/or create dedicated security docs\n- Content: Security features, secure configuration, vulnerability reporting\n- Verification: Documentation exists and is accessible\n- Timeline: 1 day for initial documentation"
+    },
+    "REM-008": {
+      "remediation_id": "REM-008",
+      "action": "Implement Dependency Pinning",
+      "description": "Implement Dependency Pinning\n- Action: Pin all dependencies to exact versions, commit lockfiles\n- Tools: Update manifest files, generate lockfiles\n- Verification: No version ranges in manifests, lockfiles committed\n- Timeline: 1 day for existing projects"
+    },
+    "REM-009": {
+      "remediation_id": "REM-009",
+      "action": "Secure Dockerfile Configuration",
+      "description": "Secure Dockerfile Configuration\n- Action: Update Dockerfile to use non-root user, minimal base image\n- Steps: Add USER directive, switch to alpine/distroless base, add HEALTHCHECK\n- Verification: Dockerfile follows security best practices\n- Timeline: 1 day"
+    },
+    "REM-010": {
+      "remediation_id": "REM-010",
+      "action": "Document Update and Patch Process",
+      "description": "Document Update and Patch Process\n- Action: Create CHANGELOG.md and document update procedures\n- Content: How to update, version history, update notifications\n- Verification: CHANGELOG exists, update process documented\n- Timeline: 1 day"
+    },
+    "REM-011": {
+      "remediation_id": "REM-011",
+      "action": "Establish Lifecycle Management",
+      "description": "Establish Lifecycle Management\n- Action: Document maintenance status and lifecycle policy\n- Content: Support duration, maintenance schedule, EOL policy\n- Verification: Lifecycle information in README or docs\n- Timeline: 1 day"
+    },
+    "REM-012": {
+      "remediation_id": "REM-012",
+      "action": "Document Access Controls",
+      "description": "Document Access Controls\n- Action: Create authentication/authorization documentation\n- Content: How auth works, how to configure, security considerations\n- Verification: Auth documentation exists\n- Timeline: 1-2 days depending on complexity"
+    },
+    "REM-013": {
+      "remediation_id": "REM-013",
+      "action": "Document Encryption Approach",
+      "description": "Document Encryption Approach\n- Action: Document how encryption is used in the product\n- Content: Encryption at rest, in transit, key management\n- Verification: Encryption documentation exists\n- Timeline: 1 day"
+    },
+    "REM-014": {
+      "remediation_id": "REM-014",
+      "action": "Create Incident Response Documentation",
+      "description": "Create Incident Response Documentation\n- Action: Add incident response section to SECURITY.md\n- Content: How to report, response timeline, contact information\n- Verification: Incident response info in SECURITY.md\n- Timeline: 1 day"
+    },
+    "REM-015": {
+      "remediation_id": "REM-015",
+      "action": "Secure Build and Deployment",
+      "description": "Secure Build and Deployment\n- Action: Review and secure CI/CD configuration\n- Steps: Use secrets management, add security checks, document process\n- Verification: CI/CD uses secrets, no hardcoded credentials\n- Timeline: 2-3 days"
+    },
+    "REM-016": {
+      "remediation_id": "REM-016",
+      "action": "Establish Dependency Assessment Process",
+      "description": "Establish Dependency Assessment Process\n- Action: Document dependency selection and approval process\n- Content: Assessment criteria, approval workflow\n- Verification: Dependency policy document exists\n- Timeline: 1 day"
+    },
+    "REM-017": {
+      "remediation_id": "REM-017",
+      "action": "Implement Version Management",
+      "description": "Implement Version Management\n- Action: Add version tracking and use semantic versioning\n- Steps: Add version to code, use git tags, create CHANGELOG\n- Verification: Version is trackable, releases are tagged\n- Timeline: 1 day"
+    },
+    "REM-018": {
+      "remediation_id": "REM-018",
+      "action": "Document Secure Communication Requirements",
+      "description": "Document Secure Communication Requirements\n- Action: Document TLS/HTTPS requirements\n- Content: TLS version requirements, certificate management\n- Verification: Secure communication documented\n- Timeline: 1 day"
+    }
+  },
+  "metadata": {
+    "source_file": "eura_knowledge/cra_rule_pack_v0.1.txt",
+    "rule_count": 18,
+    "remediation_count": 18
+  }
+}
