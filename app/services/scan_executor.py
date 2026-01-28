@@ -101,6 +101,9 @@ from app.services.github import (
 from app.services.llm import analyze_file_with_llm
 from app.services.dependencies import extract_dependencies
 from app.services.compliance import evaluate_repo
+from app.services.file_discovery import FileDiscoveryService
+from app.services.secret_detector import SecretDetector
+from app.services.ai_detector import AIDetector
 from app.services.database import (
     create_scan_record,
     update_scan_success,
@@ -236,10 +239,10 @@ async def execute_scan(
                 logger.warning("Supabase not configured: scan will not be persisted")
             scan_id = None
 
-        # List all files
+        # List all files with rate limit handling
         logger.info("Listing repository files (max_files=%d)", max_files)
         try:
-            all_files = list_repo_files(repo, max_files)
+            all_files = list_repo_files(repo, max_files, github_client)
         except Exception as e:
             if project_id and scan_id and supabase:
                 duration_ms = int((time.time() - start_time) * 1000)
@@ -249,21 +252,29 @@ async def execute_scan(
                     pass
             raise HTTPException(status_code=500, detail=f"Failed to fetch repo contents: {e}")
 
-        # Filter to text files
-        text_files = [p for p in all_files if is_text_file(p) and not should_skip_path(p)]
-        text_files = text_files[:max_files]
+        # Use FileDiscoveryService for prioritization
+        file_discovery = FileDiscoveryService()
+        prioritized_files = file_discovery.discover_files(all_files, max_files=max_files, prioritize=True)
         
-        logger.info("Files to analyze: total=%d, text=%d, will analyze=%d", 
-                   len(all_files), len(text_files), min(len(text_files), max_files))
+        # Filter to text files
+        text_files = [p for p in prioritized_files if is_text_file(p) and not should_skip_path(p)]
+        
+        logger.info("Files to analyze: total=%d, prioritized=%d, text=%d, will analyze=%d", 
+                   len(all_files), len(prioritized_files), len(text_files), min(len(text_files), max_files))
+        
+        # Initialize detectors
+        secret_detector = SecretDetector()
+        ai_detector = AIDetector()
 
         findings: List[Finding] = []
         dependencies: List[Dependency] = []
         files_processed = 0
         files_failed = 0
+        file_contents_map: Dict[str, str] = {}  # For AI detection
 
         for file_path in text_files:
             try:
-                content = read_repo_file(repo, file_path)
+                content = read_repo_file(repo, file_path, github_client)
                 
                 if content is None:
                     # File was skipped due to size
@@ -281,6 +292,31 @@ async def execute_scan(
                         )
                     )
                     continue
+                
+                # Store content for AI detection
+                file_contents_map[file_path] = content
+
+                # Secret detection (before LLM analysis for efficiency)
+                secret_findings = secret_detector.detect_secrets(file_path, content)
+                for secret in secret_findings:
+                    if secret["confidence"] >= 0.6:  # Only report high-confidence secrets
+                        findings.append(
+                            Finding(
+                                id=str(uuid.uuid4()),
+                                title=f"Potential {secret['type'].replace('_', ' ').title()} exposed",
+                                severity="high" if secret["confidence"] >= 0.8 else "medium",
+                                confidence=secret["confidence"],
+                                summary=f"Potential {secret['type']} found in {file_path}",
+                                details=f"Line {secret['line_number']}: {secret['snippet']}",
+                                evidence=[Evidence(
+                                    file=file_path,
+                                    lines=str(secret["line_number"]),
+                                    snippet=secret["snippet"]
+                                )],
+                                recommendation="Remove exposed secrets and rotate compromised credentials immediately.",
+                                category="secrets",
+                            )
+                        )
 
                 # Check if this is a dependency manifest file
                 file_lower = file_path.lower()
@@ -330,6 +366,44 @@ async def execute_scan(
                     )
                 )
         
+        # AI/ML component detection (after processing all files)
+        logger.info("Detecting AI/ML components...")
+        try:
+            ai_components = ai_detector.detect_ai_components(
+                file_paths=all_files,
+                dependencies=dependencies,
+                file_contents=file_contents_map
+            )
+            
+            if ai_components["has_ai"]:
+                logger.info(
+                    "AI components detected: frameworks=%s, models=%d, training=%d, inference=%d",
+                    ", ".join(ai_components["frameworks"]),
+                    len(ai_components["model_files"]),
+                    len(ai_components["training_files"]),
+                    len(ai_components["inference_files"])
+                )
+                
+                # Add AI detection finding
+                findings.append(
+                    Finding(
+                        id=str(uuid.uuid4()),
+                        title="AI/ML components detected",
+                        severity="info",
+                        confidence=ai_components["confidence"],
+                        summary=f"Repository contains AI/ML components: {', '.join(ai_components['frameworks'][:3])}",
+                        details=f"Frameworks: {', '.join(ai_components['frameworks'])}, "
+                               f"Model files: {len(ai_components['model_files'])}, "
+                               f"Training files: {len(ai_components['training_files'])}, "
+                               f"Inference files: {len(ai_components['inference_files'])}",
+                        evidence=[Evidence(file=file_path) for file_path in ai_components["model_files"][:5]],
+                        recommendation="Ensure AI Act compliance if deploying in EU. Review model cards and training data documentation.",
+                        category="other",
+                    )
+                )
+        except Exception as e:
+            logger.warning("Failed to detect AI components: %s", str(e)[:200])
+        
         logger.info("File analysis complete: processed=%d, failed=%d, findings=%d, dependencies=%d", 
                    files_processed, files_failed, len(findings), len(dependencies))
 
@@ -372,12 +446,17 @@ async def execute_scan(
         compliance_report = None
         try:
             logger.info("Evaluating compliance rules...")
+            # Create a wrapper function that passes github_client for rate limit handling
+            def read_file_with_rate_limit(file_path: str) -> Optional[str]:
+                return read_repo_file(repo, file_path, github_client)
+            
             compliance_report_dict = await evaluate_repo(
                 findings=findings,
                 dependencies=dependencies,
                 repo_files=all_files,  # Use all_files to check for documentation files
                 repo=repo,
-                read_file_func=read_repo_file
+                read_file_func=read_file_with_rate_limit,
+                ai_components=ai_components if 'ai_components' in locals() else None
             )
             # Phase 0: Set evaluated_at once at the end of orchestration, reused in persistence writes
             # Use the timestamp from compliance evaluation as the single source of truth
@@ -412,6 +491,8 @@ async def execute_scan(
                        compliance_report.unknown, compliance_report.not_applicable)
             
             # Save compliance report to database (only if project_id is provided and Supabase is configured)
+            # Note: Verdict will be updated after VerdictGenerator runs
+            compliance_report_id = None
             if project_id and supabase and scan_id:
                 logger.info("Saving compliance report to database...")
                 try:
@@ -449,32 +530,54 @@ async def execute_scan(
         final_repo_url = repo_url or repo_name
         commit_sha = commit_hash or ""
         
-        # Determine verdict: SHIP_BLOCKED if any rules failed, otherwise SHIP_ALLOWED
-        # For Phase 0, we use simple logic: if any rule failed with high/critical severity, block shipping
+        # Generate verdict using Compliance Evaluation Engine (Section 3.3)
+        from app.services.compliance_evaluation import VerdictGenerator
+        
         verdict = "SHIP_ALLOWED"
         blocking_rules: List[str] = []
         rule_results_v1: List[RuleResultV1] = []
         
         if compliance_report:
-            # Load rules DB to get rule metadata
+            # Use VerdictGenerator for proper verdict logic
             rules_db = load_rules_db()
+            verdict_generator = VerdictGenerator()
+            verdict_result = verdict_generator.generate_verdict(
+                rule_results=[result.dict() for result in compliance_report.rule_results],
+                environment=environment,
+                rules_db=rules_db
+            )
+            
+            verdict = verdict_result.verdict
+            blocking_rules = verdict_result.blocking_rules
+            
+            # Update compliance report and scan with final verdict (if saved to database)
+            if project_id and supabase and scan_id and compliance_report_id:
+                try:
+                    from app.services.database import get_db_client
+                    db = get_db_client()
+                    # Update compliance report verdict
+                    supabase.table("compliance_reports").update({
+                        "verdict": verdict
+                    }).eq("id", compliance_report_id).execute()
+                    # Update scan verdict
+                    db.update_scan_status(
+                        scan_id=scan_id,
+                        status="completed",
+                        verdict=verdict
+                    )
+                    logger.info("Updated compliance report and scan with verdict: verdict=%s", verdict)
+                except Exception as e:
+                    logger.error("Failed to update verdict in database (non-fatal): %s", str(e)[:200])
+            
+            # Build rule_results_v1 for response
             rules_by_id = {rule.get("rule_id"): rule for rule in rules_db.get("rules", [])}
             
-            # Build rule_results and determine blocking rules
             for rule_result in compliance_report.rule_results:
                 rule_id = rule_result.rule_id
                 rule_metadata = rules_by_id.get(rule_id, {})
                 
-                # Determine if this rule is blocking
-                # For Phase 0: a rule is blocking if it failed and has high/critical severity
-                is_blocking = False
-                if rule_result.status == "FAIL":
-                    severity = rule_metadata.get("severity", {})
-                    overall_severity = severity.get("overall", "medium")
-                    # Block if severity is high or critical
-                    if overall_severity in ["high", "critical"]:
-                        is_blocking = True
-                        blocking_rules.append(rule_id)
+                # Determine if this rule is blocking (already calculated by VerdictGenerator)
+                is_blocking = rule_id in blocking_rules
                 
                 # Get rule title and description from metadata
                 title = rule_metadata.get("title", rule_id)
@@ -504,12 +607,11 @@ async def execute_scan(
                     )
                 )
             
-            # Set verdict based on blocking rules
-            if blocking_rules:
-                verdict = "SHIP_BLOCKED"
+            # Verdict already set by VerdictGenerator above
         else:
             # No compliance report - default to SHIP_ALLOWED with empty rule_results
             logger.warning("No compliance report available, verdict set to SHIP_ALLOWED")
+            rule_results_v1 = []
         
         # Build evidence refs
         evidence_refs = EvidenceRefsV1(

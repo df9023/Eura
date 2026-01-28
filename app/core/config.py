@@ -9,7 +9,9 @@ load_dotenv()
 
 # GitHub App credentials
 GITHUB_APP_ID = os.getenv("GITHUB_APP_ID")
-GITHUB_PRIVATE_KEY = os.getenv("GITHUB_PRIVATE_KEY")
+# Handle private key - replace \n with actual newlines if needed (for quoted env vars)
+_private_key_raw = os.getenv("GITHUB_PRIVATE_KEY", "")
+GITHUB_PRIVATE_KEY = _private_key_raw.replace("\\n", "\n") if _private_key_raw else ""
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # MVP safety limits
@@ -47,15 +49,18 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 supabase: Optional[Client] = None
 try:
-    if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+    # Check for valid (non-empty) values
+    if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY and SUPABASE_SERVICE_ROLE_KEY.strip() and SUPABASE_SERVICE_ROLE_KEY != "your-service-role-key-here":
         supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    else:
-        # Logger will be imported after config loads to avoid circular import
         import logging
-        logging.getLogger("repo-scanner").warning("Supabase not configured: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.")
+        logging.getLogger("repo-scanner").info("Supabase client initialized successfully.")
+    else:
+        # Supabase is optional - this is informational, not an error
+        import logging
+        logging.getLogger("repo-scanner").info("Supabase not configured (optional): Database persistence features disabled. Scans will work without database.")
 except Exception as e:
     supabase = None
     # Logger will be imported after config loads to avoid circular import
     import logging
-    logging.getLogger("repo-scanner").exception("Supabase client init failed: %s", e)
+    logging.getLogger("repo-scanner").warning("Supabase client init failed (optional): %s. Database features disabled.", e)
 

@@ -361,10 +361,13 @@ async def evaluate_repo(
     dependencies: List[Dependency],
     repo_files: List[str],
     repo: Optional[Any] = None,
-    read_file_func: Optional[Any] = None
+    read_file_func: Optional[Any] = None,
+    ai_components: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Evaluate all CRA compliance rules against scan results.
+    
+    Uses the new Rule Engine architecture (Section 3.2) with parallel evaluation.
     
     Args:
         findings: List of security findings from scan
@@ -372,113 +375,22 @@ async def evaluate_repo(
         repo_files: List of file paths in the repository
         repo: Optional GitHub repo object for reading files
         read_file_func: Optional function to read file content (repo, path) -> content
+        ai_components: Optional AI detection results for AI Act rules
     
     Returns:
         Dictionary with compliance_report containing rule_results
     """
-    rules_db = load_rules_db()
-    rules = rules_db.get("rules", [])
+    # Use new Rule Engine (Section 3.2)
+    from app.services.rule_engine import RuleEvaluationEngine
     
-    if not rules:
-        logger.warning("No rules loaded, returning empty compliance report")
-        return {
-            "rule_results": [],
-            "evaluated_at": datetime.utcnow().isoformat() + "Z",
-            "total_rules": 0,
-            "passed": 0,
-            "failed": 0,
-            "unknown": 0,
-            "not_applicable": 0
-        }
-    
-    # Build signals from scan results
-    signals = build_signals_from_scan(findings, dependencies, repo_files)
-    
-    rule_results = []
-    
-    for rule in rules:
-        rule_id = rule.get("rule_id", "UNKNOWN")
-        check_method = rule.get("check_method", "repo_scan_static")
-        
-        # Check applicability
-        if not check_applicability(rule, signals):
-            rule_results.append({
-                "rule_id": rule_id,
-                "status": "NOT_APPLICABLE",
-                "confidence": 1.0,
-                "reason": "Rule not applicable based on repository characteristics",
-                "evaluated_at": datetime.utcnow().isoformat() + "Z"
-            })
-            continue
-        
-        # Evaluate based on check_method
-        try:
-            if check_method == "dependency_analysis":
-                result = evaluate_dependency_rule(rule, dependencies)
-            elif check_method == "content_analysis" and rule_id == "CRA-BASE-008":
-                # Hardcoded secrets check
-                result = evaluate_finding_rule(rule, findings)
-            elif check_method in ["file_presence", "repo_scan_static"]:
-                # Documentation and file-based rules
-                # Check if this is a documentation rule that needs LLM evaluation
-                rule_id_lower = rule_id.lower()
-                if rule_id in ["CRA-BASE-001", "CRA-BASE-007"] and repo and read_file_func:
-                    result = await evaluate_documentation_rule_with_llm(rule, repo_files, repo, read_file_func)
-                else:
-                    # Fallback: simple file presence check
-                    required_evidence = rule.get("required_evidence", [])
-                    found_files = [ev.get("source") for ev in required_evidence if ev.get("source") in repo_files]
-                    if found_files:
-                        result = {
-                            "rule_id": rule_id,
-                            "status": "PASS",
-                            "confidence": 0.6,
-                            "reason": f"Required files found: {', '.join(found_files)}",
-                            "evaluated_at": datetime.utcnow().isoformat() + "Z"
-                        }
-                    else:
-                        result = {
-                            "rule_id": rule_id,
-                            "status": "FAIL",
-                            "confidence": 0.7,
-                            "reason": "Required files not found",
-                            "evaluated_at": datetime.utcnow().isoformat() + "Z"
-                        }
-            else:
-                # Unknown check method
-                result = {
-                    "rule_id": rule_id,
-                    "status": "UNKNOWN",
-                    "confidence": 0.2,
-                    "reason": f"Check method '{check_method}' not implemented",
-                    "evaluated_at": datetime.utcnow().isoformat() + "Z"
-                }
-            
-            rule_results.append(result)
-            
-        except Exception as e:
-            logger.error("Error evaluating rule %s: %s", rule_id, str(e)[:200])
-            rule_results.append({
-                "rule_id": rule_id,
-                "status": "UNKNOWN",
-                "confidence": 0.1,
-                "reason": f"Evaluation error: {str(e)[:100]}",
-                "evaluated_at": datetime.utcnow().isoformat() + "Z"
-            })
-    
-    # Calculate summary statistics
-    status_counts = {"PASS": 0, "FAIL": 0, "UNKNOWN": 0, "NOT_APPLICABLE": 0}
-    for result in rule_results:
-        status = result.get("status", "UNKNOWN")
-        status_counts[status] = status_counts.get(status, 0) + 1
-    
-    return {
-        "rule_results": rule_results,
-        "evaluated_at": datetime.utcnow().isoformat() + "Z",
-        "total_rules": len(rule_results),
-        "passed": status_counts["PASS"],
-        "failed": status_counts["FAIL"],
-        "unknown": status_counts["UNKNOWN"],
-        "not_applicable": status_counts["NOT_APPLICABLE"]
-    }
+    engine = RuleEvaluationEngine()
+    return await engine.evaluate_repo(
+        findings=findings,
+        dependencies=dependencies,
+        repo_files=repo_files,
+        regulations=None,  # Evaluate all regulations
+        ai_components=ai_components,
+        repo=repo,
+        read_file_func=read_file_func
+    )
 

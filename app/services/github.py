@@ -4,7 +4,7 @@ import time
 import jwt
 import requests
 from typing import List, Optional
-from github import Github
+from github import Github, GithubException
 from app.core.config import GITHUB_APP_ID, GITHUB_PRIVATE_KEY, MAX_FILE_BYTES, MAX_CHARS_PER_FILE, SKIP_DIRS
 from app.core.logger import logger
 
@@ -56,9 +56,46 @@ def get_private_key_pem() -> str:
     raise ValueError("GITHUB_PRIVATE_KEY must be PEM content or a valid file path")
 
 
+def handle_rate_limit(github_client: Github, retry_count: int = 0, max_retries: int = 3) -> None:
+    """
+    Handle GitHub rate limit by waiting until reset time.
+    
+    Args:
+        github_client: PyGithub client instance
+        retry_count: Current retry attempt
+        max_retries: Maximum number of retries
+    
+    Raises:
+        GithubException: If rate limit exceeded and max retries reached
+    """
+    try:
+        rate_limit = github_client.get_rate_limit()
+        core = rate_limit.core
+        
+        if core.remaining == 0:
+            reset_time = core.reset
+            wait_seconds = max(0, reset_time - int(time.time())) + 5  # Add 5s buffer
+            
+            if retry_count < max_retries:
+                logger.warning(
+                    "GitHub rate limit reached. Waiting %d seconds until reset (retry %d/%d)",
+                    wait_seconds, retry_count + 1, max_retries
+                )
+                time.sleep(wait_seconds)
+            else:
+                raise GithubException(
+                    403,
+                    {"message": "Rate limit exceeded", "documentation_url": ""},
+                    headers={"X-RateLimit-Reset": str(reset_time)}
+                )
+    except AttributeError:
+        # Rate limit API might not be available, continue
+        pass
+
+
 def get_github_client(installation_id: Optional[int] = None) -> Github:
     """
-    Get authenticated GitHub client.
+    Get authenticated GitHub client with rate limit awareness.
     
     Args:
         installation_id: Optional GitHub App installation ID. If None, uses public access
@@ -76,12 +113,16 @@ def get_github_client(installation_id: Optional[int] = None) -> Github:
         github_token = os.getenv("GITHUB_TOKEN")
         if github_token:
             logger.info("Using GITHUB_TOKEN for public repository access")
-            return Github(github_token)
+            client = Github(github_token)
         else:
             # Unauthenticated public access (rate limited to 60 requests/hour)
             logger.info("Using unauthenticated GitHub client for public repository access")
             logger.warning("Unauthenticated access is rate-limited. Consider setting GITHUB_TOKEN for higher limits.")
-            return Github()
+            client = Github()
+        
+        # Check rate limit status
+        handle_rate_limit(client)
+        return client
     
     # GitHub App mode: installation_id provided
     app_id = int(GITHUB_APP_ID)
@@ -111,22 +152,59 @@ def get_github_client(installation_id: Optional[int] = None) -> Github:
         logger.error("Failed to get installation token: %s", e)
         raise ValueError(f"Failed to get installation token: {e}") from e
 
-    return Github(installation_token)
+    client = Github(installation_token)
+    
+    # Check rate limit status
+    handle_rate_limit(client)
+    
+    return client
 
 
-def list_repo_files(repo: any, max_files: int) -> List[str]:
-    """List all files in repository, respecting skip directories and limits."""
+def list_repo_files(repo: any, max_files: int, github_client: Optional[Github] = None) -> List[str]:
+    """
+    List all files in repository, respecting skip directories and limits.
+    
+    Args:
+        repo: PyGithub Repository object
+        max_files: Maximum number of files to discover (used for early stopping)
+        github_client: Optional GitHub client for rate limit handling
+    
+    Returns:
+        List of file paths
+    """
     all_files: List[str] = []
+    retry_count = 0
+    max_retries = 3
+    
     try:
         contents = repo.get_contents("")
         while contents and len(all_files) < max_files * 5:
-            item = contents.pop(0)
-            if should_skip_path(item.path):
+            try:
+                item = contents.pop(0)
+                if should_skip_path(item.path):
+                    continue
+                if item.type == "file":
+                    all_files.append(item.path)
+                elif item.type == "dir":
+                    contents.extend(repo.get_contents(item.path))
+            except GithubException as e:
+                # Handle rate limit errors
+                if e.status == 403 and "rate limit" in str(e).lower():
+                    if github_client:
+                        handle_rate_limit(github_client, retry_count, max_retries)
+                        retry_count += 1
+                        # Retry the same operation
+                        continue
+                    else:
+                        logger.error("Rate limit exceeded but no client provided for handling")
+                        raise
+                else:
+                    # Other GitHub errors - log and continue
+                    logger.warning("GitHub API error while listing files: %s", str(e)[:200])
+                    continue
+            except Exception as e:
+                logger.warning("Error processing file item: %s", str(e)[:200])
                 continue
-            if item.type == "file":
-                all_files.append(item.path)
-            elif item.type == "dir":
-                contents.extend(repo.get_contents(item.path))
     except Exception as e:
         logger.error("Failed to list repo files: %s", e)
         raise
@@ -144,8 +222,21 @@ def truncate_for_llm(content: str) -> str:
     return head + "\n\n...TRUNCATED...\n\n" + tail
 
 
-def read_repo_file(repo: any, file_path: str) -> Optional[str]:
-    """Read file content from repository, handling size limits and encoding."""
+def read_repo_file(repo: any, file_path: str, github_client: Optional[Github] = None, retry_count: int = 0) -> Optional[str]:
+    """
+    Read file content from repository, handling size limits, encoding, and rate limits.
+    
+    Args:
+        repo: PyGithub Repository object
+        file_path: Path to file in repository
+        github_client: Optional GitHub client for rate limit handling
+        retry_count: Current retry attempt (internal use)
+    
+    Returns:
+        File content as string, or None if file is too large
+    """
+    max_retries = 3
+    
     try:
         file_obj = repo.get_contents(file_path)
         
@@ -156,6 +247,19 @@ def read_repo_file(repo: any, file_path: str) -> Optional[str]:
         
         content = file_obj.decoded_content.decode("utf-8", errors="ignore")
         return truncate_for_llm(content)
+    except GithubException as e:
+        # Handle rate limit errors
+        if e.status == 403 and "rate limit" in str(e).lower():
+            if github_client and retry_count < max_retries:
+                handle_rate_limit(github_client, retry_count, max_retries)
+                # Retry reading the file
+                return read_repo_file(repo, file_path, github_client, retry_count + 1)
+            else:
+                logger.error("Rate limit exceeded while reading file %s", file_path)
+                raise
+        else:
+            logger.warning("Failed to read file %s: %s", file_path, str(e)[:200])
+            raise
     except Exception as e:
         logger.warning("Failed to read file %s: %s", file_path, str(e)[:200])
         raise

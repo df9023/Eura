@@ -1049,23 +1049,23 @@ DELETE /api/v1/repositories/{repository_id}
 GET    /api/v1/rules
 GET    /api/v1/rules/{rule_id}
 GET    /api/v1/rules?regulation={regulation}
-GET    /api/v1/rules/{rule_id}/versions
+GET    /api/v1/rules/{rule_id}/versions  # ⚠️ NOT IMPLEMENTED: Rule versioning system not yet built
 ```
 
 **Compliance Reports:**
 ```
 GET    /api/v1/reports/{report_id}
 GET    /api/v1/reports?project_id={project_id}&regulation={regulation}
-POST   /api/v1/reports/generate
-GET    /api/v1/reports/{report_id}/export?format={pdf|json|excel}
+POST   /api/v1/reports/generate  # ⚠️ PLACEHOLDER: Reports auto-generated during scan execution
+GET    /api/v1/reports/{report_id}/export?format={pdf|json|excel}  # ⚠️ PARTIAL: JSON only, PDF/Excel require additional libraries (ReportLab/openpyxl)
 ```
 
 **Webhooks:**
 ```
-POST   /api/v1/webhooks
-GET    /api/v1/webhooks
-DELETE /api/v1/webhooks/{webhook_id}
-POST   /api/v1/webhooks/{webhook_id}/test
+POST   /api/v1/webhooks  # ⚠️ NOT IMPLEMENTED: Deferred to Phase 3 (Months 7-9) - requires webhook registration system, event generation, delivery with retry logic, and security
+GET    /api/v1/webhooks  # ⚠️ NOT IMPLEMENTED: Deferred to Phase 3
+DELETE /api/v1/webhooks/{webhook_id}  # ⚠️ NOT IMPLEMENTED: Deferred to Phase 3
+POST   /api/v1/webhooks/{webhook_id}/test  # ⚠️ NOT IMPLEMENTED: Deferred to Phase 3
 ```
 
 #### 3.5.2 API Request/Response Models
@@ -1116,6 +1116,8 @@ class RuleResultV1(BaseModel):
 ```
 
 #### 3.5.3 GraphQL API Schema
+
+⚠️ **NOT IMPLEMENTED**: GraphQL API deferred to Phase 3 (Months 7-9) per PRD roadmap. Requires Strawberry GraphQL setup, schema definitions, resolvers, and subscriptions.
 
 ```graphql
 type Query {
