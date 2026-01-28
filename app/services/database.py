@@ -1,445 +1,150 @@
-"""Supabase database operations."""
-import hashlib
-from typing import List, Optional
+"""Database client for Supabase operations."""
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 from fastapi import HTTPException
 from app.core.config import supabase
 from app.core.logger import logger
-from app.models.domain import Finding, Evidence
-from app.schemas.requests import Dependency, ComplianceReport, RuleResult
 
 
-def generate_fingerprint(project_id: str, vuln_category: str, title: str, evidence: List[Evidence]) -> str:
-    """Generate SHA256 fingerprint for deduplication."""
-    if not evidence:
-        content = f"{project_id}:{vuln_category}:{title}:"
-    else:
-        ev0 = evidence[0]
-        content = f"{project_id}:{vuln_category}:{title}:{ev0.file}:{ev0.lines or ''}"
-    return hashlib.sha256(content.encode()).hexdigest()
-
-
-def parse_line_number(lines_str: Optional[str]) -> Optional[int]:
-    """Parse line number from '10-18' format, return first number."""
-    if not lines_str:
-        return None
-    try:
-        parts = lines_str.split("-")
-        return int(parts[0].strip())
-    except (ValueError, AttributeError):
-        return None
-
-
-def create_scan_record(
-    repo_name: str,
-    installation_id: Optional[int] = None,
-    commit_hash: Optional[str] = None,
-    project_id: Optional[str] = None,
-    user_id: Optional[str] = None
-) -> str:
-    """
-    Create a scan record and return scan_id.
+class DatabaseClient:
+    """Client for interacting with Supabase database."""
     
-    Args:
-        project_id: Optional project ID for persistence (legacy support)
-        repo_name: Repository name in format "owner/repo" (required)
-        installation_id: Optional GitHub App installation ID
-        commit_hash: Optional Git commit SHA
-        user_id: Optional user ID to associate scan with logged-in user
+    def __init__(self):
+        """Initialize the database client."""
+        if not supabase:
+            raise ValueError("Supabase client not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.")
+        self.client = supabase
     
-    Returns:
-        scan_id: UUID of the created scan record
-    
-    Raises:
-        HTTPException: If Supabase is not configured or record creation fails
-        ValueError: If neither project_id nor user_id is provided, or repo_name is missing
-    """
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured")
-    
-    if not repo_name:
-        raise ValueError("repo_name is required")
-    
-    if not project_id and not user_id:
-        raise ValueError("Either project_id or user_id must be provided")
-    
-    try:
-        record_data = {
-            "status": "processing",
-            "repo_name": repo_name,
-        }
+    def create_scan(self, repo_id: str, commit_hash: Optional[str] = None) -> str:
+        """
+        Create a new scan record.
         
-        if project_id:
-            record_data["project_id"] = project_id
-        if user_id:
-            record_data["user_id"] = user_id
-        if installation_id is not None:
-            record_data["installation_id"] = installation_id
-        if commit_hash:
-            record_data["commit_hash"] = commit_hash
+        Args:
+            repo_id: UUID of the repository to scan
+            commit_hash: Optional Git commit hash to scan
         
-        result = supabase.table("scans").insert(record_data).execute()
+        Returns:
+            scan_id: UUID of the created scan record
         
-        if not result.data or len(result.data) == 0:
-            raise ValueError("Failed to create scan record")
-        
-        scan_id = result.data[0]["id"]
-        logger.info("Created scan record: scan_id=%s, project_id=%s, user_id=%s", scan_id, project_id, user_id)
-        return scan_id
-    except Exception as e:
-        logger.error("Failed to create scan record: %s", e)
-        raise
-
-
-def update_scan_success(scan_id: str, duration_ms: int, total_files: int, analyzed_files: int, commit_hash: Optional[str] = None):
-    """Update scan record on success."""
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured")
-    try:
-        update_data = {
-            "status": "completed",
-            "duration_ms": duration_ms,
-            "total_files": total_files,
-            "analyzed_files": analyzed_files,
-            "error": None,
-        }
-        if commit_hash:
-            update_data["commit_hash"] = commit_hash
-        
-        supabase.table("scans").update(update_data).eq("id", scan_id).execute()
-        logger.info("Updated scan success: scan_id=%s, duration_ms=%d", scan_id, duration_ms)
-    except Exception as e:
-        logger.error("Failed to update scan success: %s", e)
-        raise
-
-
-def update_scan_failure(scan_id: str, duration_ms: int, error_msg: str):
-    """Update scan record on failure."""
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured")
-    try:
-        supabase.table("scans").update({
-            "status": "failed",
-            "duration_ms": duration_ms,
-            "error": error_msg[:5000] if error_msg else None,  # Truncate if too long
-        }).eq("id", scan_id).execute()
-        logger.error("Updated scan failure: scan_id=%s, error=%s", scan_id, error_msg[:200])
-    except Exception as e:
-        logger.error("Failed to update scan failure: %s", e)
-        # Don't raise - we're already in error handling
-
-
-def get_or_create_project(user_id: str, repo_url: str) -> str:
-    """
-    Get or create a project for a user and repository.
-    
-    Checks if a project exists for this user and repo_url.
-    If yes, returns the existing project_id.
-    If no, creates a new project and returns its project_id.
-    
-    Args:
-        user_id: User ID to associate the project with
-        repo_url: Repository URL (used as project name)
-    
-    Returns:
-        project_id: UUID of the project (existing or newly created)
-    
-    Raises:
-        HTTPException: If Supabase is not configured or project creation fails
-    """
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured")
-    
-    try:
-        # Check if project already exists for this user and repo
-        result = supabase.table("projects").select("id").eq("user_id", user_id).eq("repo_url", repo_url).execute()
-        
-        if result.data and len(result.data) > 0:
-            project_id = result.data[0]["id"]
-            logger.info("Found existing project: project_id=%s, user_id=%s, repo_url=%s", project_id, user_id, repo_url)
-            return project_id
-        
-        # Project doesn't exist, create a new one
-        project_data = {
-            "user_id": user_id,
-            "repo_url": repo_url,
-            "name": repo_url,  # Use repo_url as the project name for now
-        }
-        
-        result = supabase.table("projects").insert(project_data).execute()
-        
-        if not result.data or len(result.data) == 0:
-            raise ValueError("Failed to create project")
-        
-        project_id = result.data[0]["id"]
-        logger.info("Created new project: project_id=%s, user_id=%s, repo_url=%s", project_id, user_id, repo_url)
-        return project_id
-        
-    except Exception as e:
-        logger.error("Failed to get or create project: %s", e)
-        raise
-
-
-def update_project_last_scan(project_id: str):
-    """Update project's last_scan_at timestamp."""
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured")
-    try:
-        supabase.table("projects").update({
-            "last_scan_at": datetime.utcnow().isoformat() + "Z",
-        }).eq("id", project_id).execute()
-        logger.info("Updated project last_scan_at: project_id=%s", project_id)
-    except Exception as e:
-        logger.warning("Failed to update project last_scan_at: %s", e)
-        # Don't raise - this is not critical
-
-
-def insert_findings(scan_id: str, project_id: str, findings: List[Finding]):
-    """Insert findings with deduplication by fingerprint."""
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured")
-    if not findings:
-        logger.info("No findings to insert")
-        return
-    
-    # Deduplicate by fingerprint
-    seen_fingerprints = set()
-    unique_findings = []
-    
-    for finding in findings:
-        vuln_category = finding.category or "other"
-        evidence = finding.evidence or []
-        ev0 = evidence[0] if evidence else Evidence(file="")
-        
-        fingerprint = generate_fingerprint(
-            project_id=project_id,
-            vuln_category=vuln_category,
-            title=finding.title,
-            evidence=evidence
-        )
-        
-        if fingerprint not in seen_fingerprints:
-            seen_fingerprints.add(fingerprint)
-            unique_findings.append((finding, fingerprint, vuln_category, ev0))
-    
-    logger.info("Deduplicated findings: %d -> %d", len(findings), len(unique_findings))
-    
-    # Map severity to allowed values (info|low|medium|high|critical)
-    severity_map = {
-        "critical": "critical",
-        "high": "high",
-        "medium": "medium",
-        "low": "low",
-        "info": "info",
-    }
-    
-    # Prepare insert data
-    insert_data = []
-    for finding, fingerprint, vuln_category, ev0 in unique_findings:
-        # Map severity to allowed values, default to "info"
-        mapped_severity = severity_map.get(finding.severity.lower(), "info")
-        
-        line_number = parse_line_number(ev0.lines if ev0 else None)
-        
-        # Prepare evidence_json
-        evidence_json = []
-        for ev in (finding.evidence or []):
-            evidence_json.append({
-                "file": ev.file,
-                "lines": ev.lines,
-                "snippet": ev.snippet,
-            })
-        
-        insert_data.append({
-            "scan_id": scan_id,
-            "project_id": project_id,
-            "severity": mapped_severity,
-            "category": "security",  # Always "security"
-            "vuln_category": vuln_category,
-            "title": finding.title,
-            "description": finding.summary,  # Old column
-            "summary": finding.summary,
-            "details": finding.details,
-            "confidence": finding.confidence,
-            "recommendation": finding.recommendation,
-            "suggested_fix": finding.recommendation,  # Old column
-            "evidence_json": evidence_json,
-            "file_path": ev0.file if ev0 else None,
-            "line_number": line_number,
-            "code_snippet_before": ev0.snippet if ev0 else None,
-            "fingerprint": fingerprint,
-        })
-    
-    if not insert_data:
-        logger.info("No findings to insert after deduplication")
-        return
-    
-    # Batch insert
-    try:
-        # Insert in batches to avoid payload size issues
-        batch_size = 100
-        total_inserted = 0
-        
-        for i in range(0, len(insert_data), batch_size):
-            batch = insert_data[i:i + batch_size]
-            result = supabase.table("findings").insert(batch).execute()
-            inserted_count = len(result.data) if result.data else 0
-            total_inserted += inserted_count
-            logger.info("Inserted batch: %d findings", inserted_count)
-        
-        logger.info("Inserted findings: total=%d", total_inserted)
-    except Exception as e:
-        logger.error("Failed to insert findings: %s", e)
-        # Check if it's a duplicate constraint error
-        if "duplicate" in str(e).lower() or "unique" in str(e).lower():
-            logger.warning("Duplicate findings detected (constraint violation), continuing")
-        else:
-            raise
-
-
-def bulk_insert_dependencies(scan_id: str, project_id: str, dependencies: List[Dependency]):
-    """Insert dependencies into scan_dependencies table."""
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured")
-    if not dependencies:
-        logger.info("No dependencies to insert")
-        return
-    
-    try:
-        # Transform Dependency objects to database format
-        insert_data = []
-        for dep in dependencies:
-            insert_data.append({
-                "scan_id": scan_id,
+        Raises:
+            HTTPException: If Supabase is not configured or creation fails
+            ValueError: If repo_id is invalid or repository doesn't exist
+        """
+        try:
+            # Verify repository exists
+            repo_result = self.client.table("repositories").select("id, project_id").eq("id", repo_id).execute()
+            
+            if not repo_result.data or len(repo_result.data) == 0:
+                raise ValueError(f"Repository with id {repo_id} not found")
+            
+            repository = repo_result.data[0]
+            project_id = repository.get("project_id")
+            
+            # Create scan record
+            scan_data = {
+                "repository_id": repo_id,
                 "project_id": project_id,
-                "name": dep.name,
-                "version": dep.version,
-                "type": dep.type,
-                "file_source": dep.file_source,
-            })
-        
-        # Bulk insert
-        batch_size = 100
-        total_inserted = 0
-        
-        for i in range(0, len(insert_data), batch_size):
-            batch = insert_data[i:i + batch_size]
-            result = supabase.table("scan_dependencies").insert(batch).execute()
-            inserted_count = len(result.data) if result.data else 0
-            total_inserted += inserted_count
-            logger.info("Inserted dependency batch: %d dependencies", inserted_count)
-        
-        logger.info("Inserted dependencies: total=%d", total_inserted)
-    except Exception as e:
-        logger.error("Failed to insert dependencies: %s", e)
-        # Check if it's a duplicate constraint error
-        if "duplicate" in str(e).lower() or "unique" in str(e).lower():
-            logger.warning("Duplicate dependencies detected (constraint violation), continuing")
-        else:
-            # Don't raise - dependencies are important but not critical to scan success
-            logger.warning("Continuing despite dependency insert failure")
-
-
-def save_compliance_report(scan_id: str, project_id: str, compliance_report: ComplianceReport) -> Optional[str]:
-    """
-    Save compliance report to database.
+                "status": "queued",
+                "commit_hash": commit_hash,
+                "created_at": datetime.utcnow().isoformat() + "Z",
+            }
+            
+            result = self.client.table("scans").insert(scan_data).execute()
+            
+            if not result.data or len(result.data) == 0:
+                raise ValueError("Failed to create scan record")
+            
+            scan_id = result.data[0]["id"]
+            logger.info("Created scan: scan_id=%s, repo_id=%s, commit_hash=%s", 
+                       scan_id, repo_id, commit_hash)
+            
+            return scan_id
+            
+        except ValueError as e:
+            logger.error("Validation error creating scan: %s", e)
+            raise
+        except Exception as e:
+            logger.error("Failed to create scan: %s", e)
+            raise HTTPException(status_code=500, detail=f"Failed to create scan: {str(e)}")
     
-    Args:
-        scan_id: The scan ID this report belongs to
-        project_id: The project ID
-        compliance_report: The compliance report object
+    def update_scan_verdict(
+        self, 
+        scan_id: str, 
+        verdict: str, 
+        results: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Update scan with verdict and results.
+        
+        Args:
+            scan_id: UUID of the scan to update
+            verdict: Verdict string (e.g., 'SHIP_ALLOWED', 'SHIP_BLOCKED')
+            results: Optional dictionary containing scan results (rule_results, scores, etc.)
+        
+        Raises:
+            HTTPException: If Supabase is not configured or update fails
+            ValueError: If scan_id is invalid or verdict is invalid
+        """
+        if verdict not in ["SHIP_ALLOWED", "SHIP_BLOCKED"]:
+            raise ValueError(f"Invalid verdict: {verdict}. Must be 'SHIP_ALLOWED' or 'SHIP_BLOCKED'")
+        
+        try:
+            # Verify scan exists
+            scan_result = self.client.table("scans").select("id, status").eq("id", scan_id).execute()
+            
+            if not scan_result.data or len(scan_result.data) == 0:
+                raise ValueError(f"Scan with id {scan_id} not found")
+            
+            # Prepare update data
+            update_data = {
+                "status": "completed",
+                "verdict": verdict,
+                "completed_at": datetime.utcnow().isoformat() + "Z",
+            }
+            
+            # Add results if provided
+            if results:
+                # Store results as JSONB if your schema supports it
+                # Otherwise, extract specific fields
+                if "score" in results:
+                    update_data["score"] = results["score"]
+                if "total_rules" in results:
+                    update_data["total_rules"] = results["total_rules"]
+                if "passed" in results:
+                    update_data["passed"] = results["passed"]
+                if "failed" in results:
+                    update_data["failed"] = results["failed"]
+                if "blocking_rules" in results:
+                    update_data["blocking_rules"] = results["blocking_rules"]
+                # Store full results as JSONB if column exists
+                if "results_json" in results:
+                    update_data["results_json"] = results["results_json"]
+            
+            # Update scan record
+            self.client.table("scans").update(update_data).eq("id", scan_id).execute()
+            
+            logger.info("Updated scan verdict: scan_id=%s, verdict=%s", scan_id, verdict)
+            
+        except ValueError as e:
+            logger.error("Validation error updating scan verdict: %s", e)
+            raise
+        except Exception as e:
+            logger.error("Failed to update scan verdict: %s", e)
+            raise HTTPException(status_code=500, detail=f"Failed to update scan verdict: {str(e)}")
+
+
+# Singleton instance
+_db_client: Optional[DatabaseClient] = None
+
+
+def get_db_client() -> DatabaseClient:
+    """
+    Get or create the database client instance.
     
     Returns:
-        The report_id if successful, None otherwise
+        DatabaseClient instance
     """
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured")
-    
-    if not compliance_report:
-        logger.warning("No compliance report to save")
-        return None
-    
-    try:
-        # Calculate score (percentage of passed rules, excluding NOT_APPLICABLE)
-        total_evaluated = compliance_report.passed + compliance_report.failed + compliance_report.unknown
-        if total_evaluated > 0:
-            score = (compliance_report.passed / total_evaluated) * 100.0
-        else:
-            score = 0.0
-        
-        # Create summary string
-        summary_parts = []
-        if compliance_report.passed > 0:
-            summary_parts.append(f"{compliance_report.passed} passed")
-        if compliance_report.failed > 0:
-            summary_parts.append(f"{compliance_report.failed} failed")
-        if compliance_report.unknown > 0:
-            summary_parts.append(f"{compliance_report.unknown} unknown")
-        if compliance_report.not_applicable > 0:
-            summary_parts.append(f"{compliance_report.not_applicable} not applicable")
-        
-        summary = ", ".join(summary_parts) if summary_parts else "No rules evaluated"
-        
-        # Insert compliance report
-        report_data = {
-            "scan_id": scan_id,
-            "project_id": project_id,
-            "score": round(score, 2),  # Store as decimal/float
-            "summary": summary,
-            "evaluated_at": compliance_report.evaluated_at,
-            "total_rules": compliance_report.total_rules,
-            "passed": compliance_report.passed,
-            "failed": compliance_report.failed,
-            "unknown": compliance_report.unknown,
-            "not_applicable": compliance_report.not_applicable,
-        }
-        
-        result = supabase.table("compliance_reports").insert(report_data).execute()
-        
-        if not result.data or len(result.data) == 0:
-            raise ValueError("Failed to create compliance report record")
-        
-        report_id = result.data[0]["id"]
-        logger.info("Created compliance report: report_id=%s, scan_id=%s, score=%.2f%%", 
-                   report_id, scan_id, score)
-        
-        # Bulk insert rule results into compliance_details
-        if compliance_report.rule_results:
-            details_data = []
-            for rule_result in compliance_report.rule_results:
-                details_data.append({
-                    "report_id": report_id,
-                    "scan_id": scan_id,
-                    "project_id": project_id,
-                    "rule_id": rule_result.rule_id,
-                    "status": rule_result.status,
-                    "confidence": rule_result.confidence,
-                    "reason": rule_result.reason,
-                    "evaluated_at": rule_result.evaluated_at,
-                })
-            
-            # Insert in batches
-            batch_size = 100
-            total_inserted = 0
-            
-            for i in range(0, len(details_data), batch_size):
-                batch = details_data[i:i + batch_size]
-                result = supabase.table("compliance_details").insert(batch).execute()
-                inserted_count = len(result.data) if result.data else 0
-                total_inserted += inserted_count
-                logger.debug("Inserted compliance details batch: %d rules", inserted_count)
-            
-            logger.info("Inserted compliance details: total=%d rules", total_inserted)
-        
-        return report_id
-        
-    except Exception as e:
-        logger.error("Failed to save compliance report: %s", e)
-        # Check if it's a duplicate constraint error
-        if "duplicate" in str(e).lower() or "unique" in str(e).lower():
-            logger.warning("Duplicate compliance report detected (constraint violation), continuing")
-        else:
-            # Don't raise - compliance report is important but not critical to scan success
-            logger.warning("Continuing despite compliance report save failure")
-        return None
-
+    global _db_client
+    if _db_client is None:
+        _db_client = DatabaseClient()
+    return _db_client
