@@ -163,6 +163,30 @@ class ReportGenerateRequestV1(BaseModel):
 
 
 # ============================================================================
+# SBOM Schemas
+# ============================================================================
+
+class SbomDependencyItem(BaseModel):
+    """Single dependency for SBOM generation (name, version, type, file_source)."""
+    name: str = Field(..., min_length=1, description="Package name")
+    version: str = Field(default="", description="Version or version specifier")
+    type: str = Field(default="unknown", description="Ecosystem: python, node, poetry, etc.")
+    file_source: str = Field(default="", description="Manifest file path (e.g. requirements.txt)")
+
+
+class SbomGenerateRequestV1(BaseModel):
+    """Request to generate SBOM from dependency list (no scan/DB required)."""
+    dependencies: List[SbomDependencyItem] = Field(..., description="List of dependencies")
+    format: Literal["spdx", "cyclonedx"] = Field(
+        "spdx",
+        description="Output format: SPDX 2.3 or CycloneDX 1.5"
+    )
+    name: Optional[str] = Field("EURA SBOM", description="Document name (SPDX)")
+    repo_name: Optional[str] = Field(None, description="Repository identifier (e.g. owner/repo)")
+    commit_sha: Optional[str] = Field(None, description="Commit hash")
+
+
+# ============================================================================
 # Error Response Schema
 # ============================================================================
 

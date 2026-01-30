@@ -180,18 +180,18 @@ async def test_execute_scan_with_failed_rule_blocks_shipping():
             "not_applicable": 0
         }
         
-        # Execute scan
+        # Execute scan with production environment (HIGH severity rules only block in production)
         result = await execute_scan(
             repo_name="test-owner/test-repo",
             installation_id=12345,
             project_id=None,
             repo_url="test-owner/test-repo",
-            environment="dev"
+            environment="production"  # HIGH severity rules only block in production per PRD
         )
         
-        # Assert verdict is SHIP_BLOCKED
+        # Assert verdict is SHIP_BLOCKED (HIGH severity + production = blocked)
         assert result.verdict == "SHIP_BLOCKED", \
-            "Failed high-severity rule should result in SHIP_BLOCKED"
+            "Failed high-severity rule in production should result in SHIP_BLOCKED"
         
         # Assert blocking_rules contains the failed rule
         assert "CRA-BASE-008" in result.blocking_rules, \

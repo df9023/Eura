@@ -542,7 +542,7 @@ async def execute_scan(
             rules_db = load_rules_db()
             verdict_generator = VerdictGenerator()
             verdict_result = verdict_generator.generate_verdict(
-                rule_results=[result.dict() for result in compliance_report.rule_results],
+                rule_results=[result.model_dump() for result in compliance_report.rule_results],
                 environment=environment,
                 rules_db=rules_db
             )

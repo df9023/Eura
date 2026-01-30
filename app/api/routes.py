@@ -14,9 +14,11 @@ from app.schemas.api_v1 import (
     ProjectCreateRequestV1, ProjectUpdateRequestV1, ProjectResponseV1, ProjectListResponseV1,
     RepositoryCreateRequestV1, RepositoryUpdateRequestV1, RepositoryResponseV1, RepositoryListResponseV1,
     RuleResponseV1, RuleListResponseV1,
-    ComplianceReportResponseV1, ComplianceReportListResponseV1, ReportGenerateRequestV1
+    ComplianceReportResponseV1, ComplianceReportListResponseV1, ReportGenerateRequestV1,
+    SbomGenerateRequestV1,
 )
 from app.services.database import get_db_client
+from app.services.sbom import generate_sbom
 
 router = APIRouter()
 
@@ -825,3 +827,26 @@ async def export_report_v1(
         "message": f"Export format '{format}' not yet implemented",
         "report_id": report_id
     }
+
+
+# ============================================================================
+# SBOM Endpoints (local-only; no GitHub/DB required)
+# ============================================================================
+
+@router.post("/v1/sbom/generate")
+async def generate_sbom_v1(request: SbomGenerateRequestV1):
+    """
+    Generate SBOM (Software Bill of Materials) in SPDX 2.3 or CycloneDX 1.5 format.
+
+    Accepts a list of dependencies and returns a standard SBOM. No external services
+    (GitHub, database) required—suitable for local use and CRA-SBOM-004 compliance.
+    """
+    deps = [d.model_dump() for d in request.dependencies]
+    sbom = generate_sbom(
+        deps,
+        request.format,
+        name=request.name or "EURA SBOM",
+        repo_name=request.repo_name,
+        commit_sha=request.commit_sha,
+    )
+    return sbom
