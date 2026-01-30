@@ -92,9 +92,9 @@ This document breaks down the PRD into actionable implementation tasks organized
   - [ ] CRA-SBOM-001: Dependency manifest files present
   - [ ] CRA-SBOM-002: Complete dependency tree extractable
   - [ ] CRA-SBOM-003: License information available for all dependencies
-  - [ ] CRA-SBOM-004: SBOM exportable in standard format (SPDX, CycloneDX)
-  - Implement SBOM generation
-  - Write tests
+  - [x] CRA-SBOM-004: SBOM exportable in standard format (SPDX, CycloneDX)
+  - [x] Implement SBOM generation (SPDX 2.3 + CycloneDX 1.5 via `app/services/sbom.py` and `POST /api/v1/sbom/generate`)
+  - [x] Write tests (`tests/test_sbom.py`)
 
 - [ ] **Implement Lifecycle Management rules (Article 12)**
   - [ ] CRA-LIFE-001: Security update procedures documented

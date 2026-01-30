@@ -506,6 +506,22 @@ Today's work focused on completing Section 3.4 (Data Persistence - Database Sche
 
 ---
 
+## ✅ SBOM (Software Bill of Materials) - ADDED
+
+**Status:** Complete (local-only; no GitHub/DB required)
+
+**What Was Done:**
+- **SBOM service** (`app/services/sbom.py`):
+  - `generate_spdx_json()` – SPDX 2.3 JSON from dependency list
+  - `generate_cyclonedx_json()` – CycloneDX 1.5 JSON from dependency list
+  - `generate_sbom(dependencies, format)` – unified entry point
+- **API:** `POST /api/v1/sbom/generate` – body: `{ "dependencies": [...], "format": "spdx" | "cyclonedx", "name?", "repo_name?", "commit_sha?" }` → returns SBOM JSON
+- **Tests:** `tests/test_sbom.py` (7 tests)
+
+Supports CRA-SBOM-004: SBOM exportable in standard format (SPDX, CycloneDX). No external services required.
+
+---
+
 ## 🎯 Next Steps (For Future Sessions)
 
 1. **Complete Section 3.5:**
