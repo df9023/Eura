@@ -70,7 +70,7 @@ class AIDetector:
         Returns:
             List of detected framework names
         """
-        frameworks: Set[str] = []
+        frameworks: Set[str] = set()
         
         for dep in dependencies:
             dep_name = dep.get("name", "").lower()

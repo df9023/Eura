@@ -1,6 +1,7 @@
 # EURA 2.0 Implementation Status Summary
 
-**Last Updated:** January 30, 2026
+**Last Updated:** January 30, 2026  
+**Workspace:** Git worktree at `C:\Users\danie\.cursor\worktrees\Eura\wpn`
 
 ---
 
@@ -26,38 +27,117 @@ What Eura 2.0 can do today:
 
 ---
 
+## 🔍 Gap Analysis: What's Missing for Market Fit
+
+### Developer Experience Gaps
+
+| Gap | Impact | Difficulty | Priority |
+|-----|--------|------------|----------|
+| **No CLI tool** | Devs can't scan locally without API call | Medium | HIGH |
+| **No local folder scanning** | Must use GitHub; can't scan uncommitted code | Medium | HIGH |
+| **No GitHub PR integration** | No compliance status on PRs | Medium | HIGH |
+| **No OpenAPI/Swagger UI** | Hard to explore API | Low | MEDIUM |
+| **No SDK/client libraries** | Users write raw HTTP | Medium | MEDIUM |
+| **No VS Code extension** | No IDE feedback | High | LOW (later) |
+
+### Compliance Feature Gaps
+
+| Gap | Regulation | Impact | Priority |
+|-----|------------|--------|----------|
+| **No vulnerability DB** (OSV/Snyk) | CRA Art. 10 | Can't check for known CVEs | HIGH |
+| **Only 18 CRA rules** (need 50+) | CRA | Incomplete coverage | HIGH |
+| **No license compliance** | CRA Art. 10 | Can't verify SBOM licenses | MEDIUM |
+| **No transitive deps** | CRA Art. 10 | Misses indirect vulnerabilities | MEDIUM |
+| **Limited AI Act rules** | AI Act | Only classification + HR docs | MEDIUM |
+| **No model card generator** | AI Act Art. 11 | No help creating compliant docs | LOW |
+
+### Competitive Feature Gaps
+
+| Feature | Why It Matters | Priority |
+|---------|----------------|----------|
+| **Compliance badges** | README badges like "CRA Compliant" | HIGH |
+| **Remediation templates** | Auto-generate SECURITY.md, model cards | HIGH |
+| **Historical trends** | Track score over time per repo | MEDIUM |
+| **Multi-repo dashboard** | Org-wide compliance view | MEDIUM |
+| **Custom rules** | Let users define their own checks | LOW (Phase 4) |
+
+---
+
 ## 🎯 What to Do Next (Prioritized)
 
-1. **Run database schema (if using Supabase)**  
-   Execute `QUICK_START_DATABASE.sql` in Supabase SQL Editor; add RLS policies as needed.
+### Immediate (This Sprint)
 
-2. **CI/CD integration (Section 3.6)**  
-   Add GitHub Action (or similar) that calls `POST /api/v1/scans/run` and fails the job on SHIP_BLOCKED. Harden `scripts/ci_gatekeeper.py` for use from CI.
+1. **CLI Tool for Local Scanning** ⭐ NEW  
+   Create `eura scan ./path` command that works offline without GitHub.
+   - Reuses existing services (file_discovery, dependencies, secrets, ai_detector, rule_engine)
+   - No database required
+   - Outputs JSON or pretty-printed report to terminal
+   - Enables: local dev feedback, CI without API, offline compliance checks
 
-3. **Expand CRA rules**  
-   Add Security-by-Design (CRA-SEC-*), Vulnerability Handling (CRA-VULN-*), Documentation (CRA-DOC-*), Lifecycle (CRA-LIFE-*) toward 50+ rules. Rule definitions in JSON; evaluators in rule engine.
+2. **GitHub Action (CI/CD Integration)** ⭐ Section 3.6  
+   Create `.github/actions/eura-scan/action.yml` that calls API or runs CLI.
+   - Posts PR check status (pass/fail)
+   - Comments compliance summary on PR
+   - Fails workflow on SHIP_BLOCKED
 
-4. **More dependency parsers**  
-   Java (pom.xml, build.gradle), Go (go.mod), Rust (Cargo.toml), Ruby, PHP, .NET; then optional transitive resolution and OSV integration.
+3. **Compliance Badge Endpoint** ⭐ NEW  
+   `GET /api/v1/badges/{project_id}` returns SVG badge for README.
+   - "CRA: 92%" or "CRA: COMPLIANT" / "CRA: NON-COMPLIANT"
 
-5. **API polish**  
-   Rule versioning endpoint; report export (PDF/Excel); OpenAPI/Swagger generation and hosting.
+### Short-term (Next 2 Sprints)
 
-6. **Testing & docs**  
-   API endpoint tests, integration tests for DB and scan flow; update developer and deployment docs.
+4. **OSV Vulnerability Integration**  
+   Check dependencies against OSV.dev API for known CVEs.
+   - CRA-BASE-003 becomes functional
+   - Critical for real compliance value
 
-7. **Frontend (later)**  
-   Basic dashboard: scan trigger, report viewer, rule explorer (per plan).
+5. **Expand CRA Rules to 30+**  
+   Add: CRA-SEC-* (5), CRA-VULN-* (4), CRA-DOC-* (4), CRA-LIFE-* (4)
+   - Total: 35+ rules
+   - Covers most CRA articles
 
-*Deferred to Phase 3 (per PRD):* Webhooks, GraphQL, GitLab/Bitbucket/Azure DevOps clients, generic Git client.
+6. **Remediation Template Generator** ⭐ NEW  
+   `POST /api/v1/generate/security-md` returns a starter SECURITY.md.
+   - Same for MODEL_CARD.md, CHANGELOG.md
+   - Reduces friction for compliance
 
-**Reference:** See `docs/EURA_FLOW.md` for the complete compliance evaluation logic (signals, rules, LLM usage, verdict generation).
+7. **OpenAPI/Swagger UI**  
+   Auto-generate and host at `/docs` (FastAPI built-in, just enable).
+
+### Medium-term (Phase 2-3)
+
+8. **More dependency parsers** (Java, Go, Rust, Ruby)
+9. **License detection from manifest files**
+10. **Historical compliance trends API**
+11. **Multi-repo project scanning**
+12. **PDF/Excel report export**
+
+### Deferred (Phase 4+)
+
+- Frontend dashboard
+- VS Code extension
+- Custom rule builder
+- GitLab/Bitbucket/Azure DevOps integrations
+- Webhooks system
+- GraphQL API
+
+**Reference:** See `docs/EURA_FLOW.md` for the complete compliance evaluation logic.
 
 ---
 
 ## 🎯 Overview
 
-Sections 3.1–3.4 and most of 3.5 are complete. SBOM generation and verdict/test fixes are in place. CI/CD (3.6) and further rule/parser expansion are the main next steps.
+**Core engine: ~95% complete.** Sections 3.1–3.4 and most of 3.5 implemented. SBOM, verdict logic, and tests working.
+
+**Key insight:** The backend is solid, but **developer experience and market fit features are the gap.** Next priorities:
+
+1. **CLI tool** — Let devs scan locally without GitHub or API
+2. **GitHub Action** — Real CI/CD integration with PR checks
+3. **Compliance badges** — Visual proof for README
+4. **OSV integration** — Real vulnerability data (CRA-BASE-003)
+5. **More rules** — From 18 to 35+ CRA rules
+
+See **Gap Analysis** section above for full prioritized list.
 
 ---
 
@@ -574,7 +654,13 @@ Supports CRA-SBOM-004: SBOM exportable in standard format (SPDX, CycloneDX). No 
 
 ## 🎯 Next Steps (For Future Sessions)
 
-See **What to Do Next (Prioritized)** at the top of this document. In short: run DB schema if using Supabase; add CI/CD (Section 3.6); expand CRA rules and dependency parsers; API polish (versioning, PDF/Excel export, OpenAPI); more tests and docs; frontend later.
+See **What to Do Next (Prioritized)** at the top of this document. Summary:
+
+**Immediate priority:** CLI tool for local scanning, GitHub Action for CI/CD, compliance badges.
+
+**Why CLI first:** It unlocks offline scanning, faster dev feedback, CI without hosted API, and reuses all existing services — high value, medium effort.
+
+**Then:** OSV vulnerability integration (makes CRA-BASE-003 real), expand to 35+ rules, remediation generators.
 
 ---
 
@@ -615,4 +701,4 @@ See **What to Do Next (Prioritized)** at the top of this document. In short: run
 ---
 
 **Last Updated:** January 30, 2026  
-**Summary:** Achieved functionality and prioritized next steps added; SBOM, verdict test fix, and Pydantic model_dump reflected.
+**Summary:** Added gap analysis (DX, compliance, competitive). Reprioritized: CLI tool, GitHub Action, badges, OSV, more rules. Core engine solid; focus shifts to developer experience and market fit.
