@@ -1,13 +1,63 @@
 # EURA 2.0 Implementation Status Summary
 
-**Date:** January 28, 2026  
-**Session Focus:** Sections 3.4 (Data Persistence) and 3.5 (API Specification)
+**Last Updated:** January 30, 2026
+
+---
+
+## 📋 Achieved Functionality Summary
+
+What Eura 2.0 can do today:
+
+| # | Functionality | Description |
+|---|----------------|-------------|
+| 1 | **Repository scanning (GitHub)** | Fetches repo contents via GitHub API; supports public repos (optional token) and private repos (GitHub App / installation_id). Rate limit handling and backoff. |
+| 2 | **File discovery & prioritization** | Discovers files with a priority order: manifests (requirements.txt, package.json, etc.) → configs → docs (README, SECURITY.md) → source. Skips .git, node_modules, venv, etc. |
+| 3 | **Dependency extraction** | Parses Python (requirements.txt, pyproject.toml), Node (package.json), Poetry (pyproject.toml). Outputs name, version, type, file_source. |
+| 4 | **Secret detection** | Scans file content for API keys, passwords, tokens; confidence scoring; high-confidence findings surface in scan results. |
+| 5 | **AI/ML detection** | Detects AI frameworks (TensorFlow, PyTorch, scikit-learn, etc.), model files (.h5, .pkl, .onnx, .pb, .pt), training/inference patterns. Feeds AI Act rules. |
+| 6 | **LLM-based code analysis** | Optional OpenAI-backed analysis for security/best-practice advisories (non-blocking). |
+| 7 | **CRA rule engine** | 18 CRA-BASE rules from `rules_db.json`; file presence, dependency, and documentation checks; parallel evaluation; evidence-based results. |
+| 8 | **AI Act rule engine** | AI system classification (prohibited/high-risk/limited/minimal), high-risk documentation checks; integrated with rule engine. |
+| 9 | **Compliance verdict & scoring** | SHIP_ALLOWED / SHIP_BLOCKED from rule results; environment-aware (production/eu-production: HIGH blocks; dev/staging: only CRITICAL blocks). Severity-weighted score 0–100 per regulation (CRA, AI_ACT). |
+| 10 | **Database persistence** | Full schema (12 tables) and data access layer for scans, projects, repositories, rule results, compliance reports, findings, dependencies, AI systems, model cards. Ready for Supabase via `QUICK_START_DATABASE.sql`. |
+| 11 | **REST API (v1)** | 25+ endpoints: run scan, get/list scans, projects, repositories, rules, compliance reports; CRUD for projects/repos; optional project_id for persistence. |
+| 12 | **SBOM generation** | SPDX 2.3 and CycloneDX 1.5 JSON from a dependency list. `POST /api/v1/sbom/generate` (no GitHub/DB required). Supports CRA-SBOM-004. |
+| 13 | **Tests** | Phase 0 contract tests (execute_scan → ScanResultV1, verdict, timezone); SBOM tests (7). Pydantic `model_dump` used; verdict test aligned with PRD (production = HIGH blocks). |
+
+---
+
+## 🎯 What to Do Next (Prioritized)
+
+1. **Run database schema (if using Supabase)**  
+   Execute `QUICK_START_DATABASE.sql` in Supabase SQL Editor; add RLS policies as needed.
+
+2. **CI/CD integration (Section 3.6)**  
+   Add GitHub Action (or similar) that calls `POST /api/v1/scans/run` and fails the job on SHIP_BLOCKED. Harden `scripts/ci_gatekeeper.py` for use from CI.
+
+3. **Expand CRA rules**  
+   Add Security-by-Design (CRA-SEC-*), Vulnerability Handling (CRA-VULN-*), Documentation (CRA-DOC-*), Lifecycle (CRA-LIFE-*) toward 50+ rules. Rule definitions in JSON; evaluators in rule engine.
+
+4. **More dependency parsers**  
+   Java (pom.xml, build.gradle), Go (go.mod), Rust (Cargo.toml), Ruby, PHP, .NET; then optional transitive resolution and OSV integration.
+
+5. **API polish**  
+   Rule versioning endpoint; report export (PDF/Excel); OpenAPI/Swagger generation and hosting.
+
+6. **Testing & docs**  
+   API endpoint tests, integration tests for DB and scan flow; update developer and deployment docs.
+
+7. **Frontend (later)**  
+   Basic dashboard: scan trigger, report viewer, rule explorer (per plan).
+
+*Deferred to Phase 3 (per PRD):* Webhooks, GraphQL, GitLab/Bitbucket/Azure DevOps clients, generic Git client.
+
+**Reference:** See `docs/EURA_FLOW.md` for the complete compliance evaluation logic (signals, rules, LLM usage, verdict generation).
 
 ---
 
 ## 🎯 Overview
 
-Today's work focused on completing Section 3.4 (Data Persistence - Database Schema) and implementing Section 3.5 (API Specification - REST Endpoints). Both sections are now substantially complete with clear documentation of what's implemented vs. deferred.
+Sections 3.1–3.4 and most of 3.5 are complete. SBOM generation and verdict/test fixes are in place. CI/CD (3.6) and further rule/parser expansion are the main next steps.
 
 ---
 
@@ -524,25 +574,7 @@ Supports CRA-SBOM-004: SBOM exportable in standard format (SPDX, CycloneDX). No 
 
 ## 🎯 Next Steps (For Future Sessions)
 
-1. **Complete Section 3.5:**
-   - Implement rule versioning system
-   - Add PDF/Excel export functionality
-   - (Webhooks and GraphQL deferred to Phase 3)
-
-2. **Section 3.6: CI/CD Integration:**
-   - GitHub Actions integration
-   - GitLab CI template
-   - Other CI/CD platform integrations
-
-3. **Testing:**
-   - Write API endpoint tests
-   - Integration tests for database operations
-   - End-to-end scan workflow tests
-
-4. **Documentation:**
-   - OpenAPI/Swagger documentation generation
-   - API usage examples
-   - Deployment guides
+See **What to Do Next (Prioritized)** at the top of this document. In short: run DB schema if using Supabase; add CI/CD (Section 3.6); expand CRA rules and dependency parsers; API polish (versioning, PDF/Excel export, OpenAPI); more tests and docs; frontend later.
 
 ---
 
@@ -582,5 +614,5 @@ Supports CRA-SBOM-004: SBOM exportable in standard format (SPDX, CycloneDX). No 
 
 ---
 
-**Last Updated:** January 28, 2026  
-**Session Completed:** Sections 3.4 and 3.5 implementation
+**Last Updated:** January 30, 2026  
+**Summary:** Achieved functionality and prioritized next steps added; SBOM, verdict test fix, and Pydantic model_dump reflected.

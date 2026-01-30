@@ -2,6 +2,8 @@
 
 This document breaks down the PRD into actionable implementation tasks organized by phase.
 
+**Reference:** See `docs/EURA_FLOW.md` for the complete compliance evaluation logic.
+
 ---
 
 ## Phase 1: Foundation & CRA Expansion (Months 1-3)
