@@ -107,9 +107,29 @@ POST /api/v1/scans/run          # Run compliance scan
 GET  /api/v1/scans/{id}         # Get scan results
 GET  /api/v1/rules              # List all rules
 GET  /api/v1/rules?regulation=CRA  # Filter by regulation
-POST /api/v1/sbom/generate      # Generate SBOM
+POST /api/v1/sbom/generate      # Generate SBOM (✅ implemented)
 GET  /api/v1/projects           # List projects
 ```
+
+### Compliance Artifact Exports (PRD 3.8)
+
+Machine-readable exports for EU regulatory audits:
+
+| Artifact | Endpoint | Status | Format |
+|----------|----------|--------|--------|
+| **SBOM** | `POST /api/v1/sbom/generate` | ✅ Done | CycloneDX/SPDX JSON |
+| **VEX** | `POST /api/v1/exports/vex` | 🔲 TODO | OpenVEX JSON |
+| **CSAF** | `POST /api/v1/exports/csaf` | 🔲 TODO | CSAF 2.0 JSON |
+| **SARIF** | `POST /api/v1/exports/sarif` | 🔲 TODO | SARIF 2.1.0 JSON |
+| **Model Card** | `POST /api/v1/exports/model-card` | 🔲 TODO | JSON/Markdown |
+| **Risk Register** | `POST /api/v1/exports/risk-register` | 🔲 TODO | JSON/CSV |
+| **Technical File** | `POST /api/v1/exports/technical-file` | 🔲 TODO | Markdown/PDF |
+
+**Cannot auto-generate** (requires user input):
+- Art 12 Activity Logs (runtime data)
+- Human Oversight Logs (intervention records)
+- Training Data Provenance (dataset metadata)
+- EU Declaration of Conformity (legal signature)
 
 ## Rule Implementation Guide
 

@@ -1308,6 +1308,152 @@ async def main():
 - Incremental dependency updates
 - Delta compliance reports
 
+### 3.8 Compliance Artifact Exports
+
+EURA must generate machine-readable compliance artifacts required for EU regulatory audits. These exports enable automated market surveillance and provide the evidentiary basis for conformity assessments.
+
+#### 3.8.1 CRA Mandatory Artifacts
+
+**Software Bill of Materials (SBOM):**
+```
+POST /api/v1/exports/sbom
+```
+- **Formats**: CycloneDX 1.5, SPDX 2.3 (JSON)
+- **Status**: ✅ Implemented
+- **Content**: Component inventory with name, version, PURL, supplier, license, dependencies
+- **CRA Reference**: Annex I - Software supply chain transparency
+
+**Vulnerability Exploitability eXchange (VEX):**
+```
+POST /api/v1/exports/vex
+```
+- **Format**: CycloneDX VEX or OpenVEX (JSON)
+- **Status**: 🔲 To Implement
+- **Content**: CVE analysis showing whether vulnerabilities actually affect the product
+- **Fields**: `vulnerability_id`, `status` (not_affected/affected/fixed/under_investigation), `justification`, `action_statement`
+- **CRA Reference**: Annex I, II - Vulnerability handling
+
+**Common Security Advisory Framework (CSAF):**
+```
+POST /api/v1/exports/csaf
+```
+- **Format**: CSAF 2.0 (JSON)
+- **Status**: 🔲 To Implement
+- **Content**: Machine-readable security advisories for automated consumption
+- **CRA Reference**: Annex I - Incident reporting
+
+**Static Analysis Results (SARIF):**
+```
+POST /api/v1/exports/sarif
+```
+- **Format**: SARIF 2.1.0 (JSON)
+- **Status**: 🔲 To Implement
+- **Content**: Security scan results from SAST/SCA/secret detection
+- **CRA Reference**: Essential Requirements - Security by Design
+
+#### 3.8.2 AI Act Mandatory Artifacts
+
+**Model Card:**
+```
+POST /api/v1/exports/model-card
+```
+- **Format**: JSON or Markdown
+- **Status**: 🔲 To Implement
+- **Content**: AI system "nutrition label" including:
+  - Model architecture and type
+  - Intended use and limitations
+  - Performance metrics (accuracy, robustness, fairness)
+  - Training data summary
+  - Ethical considerations and known risks
+- **AI Act Reference**: Article 13 (Transparency), Annex IV
+
+**Data Card (Datasheet for Datasets):**
+```
+POST /api/v1/exports/data-card
+```
+- **Format**: JSON or Markdown
+- **Status**: 🔲 To Implement (Template Only - requires user input)
+- **Content**: Training data documentation including:
+  - Data provenance and collection methods
+  - Dataset composition and scope
+  - Labelling procedures
+  - Bias mitigation steps
+- **AI Act Reference**: Article 10 (Data Governance)
+
+**Risk Register:**
+```
+POST /api/v1/exports/risk-register
+```
+- **Format**: JSON or CSV
+- **Status**: 🔲 To Implement
+- **Content**: Compliance risk assessment including:
+  - Rule failures mapped to regulatory articles
+  - Severity and impact assessment
+  - Remediation status and timeline
+  - Residual risk documentation
+- **AI Act Reference**: Article 9 (Risk Management)
+
+**Technical File (Annex IV Template):**
+```
+POST /api/v1/exports/technical-file
+```
+- **Format**: Structured Markdown or PDF
+- **Status**: 🔲 To Implement
+- **Content**: Complete audit dossier structure:
+  1. System Overview (description, versioning, architecture)
+  2. Data & Model Documentation (model cards, data cards)
+  3. Risk & Control Register (Art 9 assessments)
+  4. Operational Controls (human oversight, monitoring)
+  5. Technical Evidence (logs, security scans)
+  6. Conformity Records (compliance mapping)
+- **AI Act Reference**: Article 11, Annex IV
+
+**Compliance Mapping Table:**
+```
+POST /api/v1/exports/compliance-map
+```
+- **Format**: JSON or CSV
+- **Status**: 🔲 To Implement
+- **Content**: Maps every regulatory requirement to specific evidence
+- **Columns**: `regulation`, `article`, `requirement`, `rule_id`, `status`, `evidence_location`
+
+#### 3.8.3 Artifacts EURA Cannot Generate
+
+The following artifacts require runtime data or human expertise that EURA cannot automatically produce:
+
+| Artifact | Reason | User Action Required |
+|----------|--------|---------------------|
+| **Art 12 Activity Logs** | Requires actual system operation logs | User must provide runtime logs |
+| **Human Oversight Logs** | Requires intervention records from production | User must implement logging |
+| **Training Data Provenance** | Requires actual dataset metadata | User must document datasets |
+| **EU Declaration of Conformity** | Legal document requiring authorized signature | User/legal team signs |
+| **Bias Testing Results** | Requires actual ML model evaluation | User must run fairness tests |
+| **Threat Models** | Requires architectural security expertise | Security team creates |
+
+#### 3.8.4 Export API Specification
+
+**Request Format:**
+```python
+class ExportRequest(BaseModel):
+    scan_id: Optional[UUID] = None  # Use latest scan if not provided
+    project_id: Optional[UUID] = None
+    format: Literal["json", "markdown", "csv", "pdf"]
+    include_evidence: bool = True
+    regulation: Optional[Literal["CRA", "AI_ACT", "ALL"]] = "ALL"
+```
+
+**Response Format:**
+```python
+class ExportResponse(BaseModel):
+    export_id: UUID
+    artifact_type: str
+    format: str
+    generated_at: datetime
+    content: Union[dict, str]  # JSON object or string content
+    download_url: Optional[str]  # For large files
+    metadata: Dict[str, Any]
+```
+
 ---
 
 ## 4. Technical Architecture

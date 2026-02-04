@@ -127,6 +127,75 @@ This document breaks down the PRD into actionable implementation tasks organized
   - Include examples and remediation guidance
   - Publish to docs site
 
+### Compliance Artifact Exports (PRD 3.8)
+
+Machine-readable exports required for EU regulatory audits.
+
+- [x] **SBOM Generation** (CRA Annex I)
+  - [x] CycloneDX 1.5 JSON export
+  - [x] SPDX 2.3 JSON export
+  - [x] `POST /api/v1/sbom/generate` endpoint
+  - [x] Unit tests
+
+- [ ] **VEX Reports** (CRA Annex I, II)
+  - [ ] Implement OpenVEX JSON generation
+  - [ ] Analyze CVEs against actual code paths
+  - [ ] Status values: not_affected, affected, fixed, under_investigation
+  - [ ] `POST /api/v1/exports/vex` endpoint
+  - [ ] Integrate with OSV vulnerability database
+  - [ ] Write tests
+
+- [ ] **CSAF Security Advisories** (CRA Annex I)
+  - [ ] Implement CSAF 2.0 JSON generation
+  - [ ] Map security findings to CSAF format
+  - [ ] `POST /api/v1/exports/csaf` endpoint
+  - [ ] Write tests
+
+- [ ] **SARIF Reports** (CRA Essential Requirements)
+  - [ ] Implement SARIF 2.1.0 JSON generation
+  - [ ] Wrap secret detection results in SARIF format
+  - [ ] Wrap security scan findings in SARIF format
+  - [ ] `POST /api/v1/exports/sarif` endpoint
+  - [ ] Write tests
+
+- [ ] **Model Card Generation** (AI Act Art 13, Annex IV)
+  - [ ] Design Model Card JSON schema
+  - [ ] Extract model info from AI detection results
+  - [ ] Generate intended use and limitations section
+  - [ ] Include performance metrics placeholders
+  - [ ] `POST /api/v1/exports/model-card` endpoint
+  - [ ] Markdown export option
+  - [ ] Write tests
+
+- [ ] **Data Card Template** (AI Act Art 10)
+  - [ ] Design Data Card JSON schema
+  - [ ] Generate template with required fields
+  - [ ] User must fill in dataset-specific details
+  - [ ] `POST /api/v1/exports/data-card` endpoint
+  - [ ] Write tests
+
+- [ ] **Risk Register** (AI Act Art 9)
+  - [ ] Map rule failures to regulatory articles
+  - [ ] Calculate severity and impact scores
+  - [ ] Track remediation status
+  - [ ] `POST /api/v1/exports/risk-register` endpoint
+  - [ ] JSON and CSV export formats
+  - [ ] Write tests
+
+- [ ] **Technical File Template** (AI Act Art 11, Annex IV)
+  - [ ] Generate Annex IV compliant structure
+  - [ ] Sections: Overview, Data/Model Docs, Risk Register, Controls, Evidence, Conformity
+  - [ ] `POST /api/v1/exports/technical-file` endpoint
+  - [ ] Markdown and PDF export options
+  - [ ] Write tests
+
+- [ ] **Compliance Mapping Table**
+  - [ ] Map requirements to evidence locations
+  - [ ] Columns: regulation, article, requirement, rule_id, status, evidence
+  - [ ] `POST /api/v1/exports/compliance-map` endpoint
+  - [ ] JSON and CSV export formats
+  - [ ] Write tests
+
 ### Enhanced Dependency Parsing
 
 - [ ] **Implement Java dependency parser**

@@ -27,6 +27,42 @@ What Eura 2.0 can do today:
 
 ---
 
+## 📦 Compliance Artifact Export Status
+
+EURA must generate machine-readable artifacts for EU regulatory audits (see PRD Section 3.8).
+
+### CRA Artifacts
+
+| Artifact | Format | Status | Endpoint |
+|----------|--------|--------|----------|
+| **SBOM** | CycloneDX/SPDX JSON | ✅ Implemented | `POST /api/v1/sbom/generate` |
+| **VEX Reports** | OpenVEX JSON | 🔲 Not Started | `POST /api/v1/exports/vex` |
+| **CSAF Advisories** | CSAF 2.0 JSON | 🔲 Not Started | `POST /api/v1/exports/csaf` |
+| **SARIF Reports** | SARIF 2.1.0 JSON | 🔲 Not Started | `POST /api/v1/exports/sarif` |
+
+### AI Act Artifacts
+
+| Artifact | Format | Status | Endpoint |
+|----------|--------|--------|----------|
+| **Model Card** | JSON/Markdown | 🔲 Not Started | `POST /api/v1/exports/model-card` |
+| **Data Card** | JSON/Markdown | 🔲 Template Only | `POST /api/v1/exports/data-card` |
+| **Risk Register** | JSON/CSV | 🔲 Not Started | `POST /api/v1/exports/risk-register` |
+| **Technical File** | Markdown/PDF | 🔲 Not Started | `POST /api/v1/exports/technical-file` |
+| **Compliance Map** | JSON/CSV | 🔲 Not Started | `POST /api/v1/exports/compliance-map` |
+
+### Cannot Auto-Generate (Requires User Input)
+
+| Artifact | Reason |
+|----------|--------|
+| Art 12 Activity Logs | Requires runtime system operation logs |
+| Human Oversight Logs | Requires intervention records from production |
+| Training Data Provenance | Requires actual dataset metadata |
+| EU Declaration of Conformity | Legal document requiring authorized signature |
+| Bias Testing Results | Requires actual ML model evaluation |
+| Threat Models | Requires architectural security expertise |
+
+---
+
 ## 🔍 Gap Analysis: What's Missing for Market Fit
 
 ### Developer Experience Gaps
