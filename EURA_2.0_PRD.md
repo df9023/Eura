@@ -2158,6 +2158,6 @@ result = await scan_executor.execute_scan(
 
 ---
 
-**Document Owner**: Engineering Team  
+**Document Owner**: Daniel Fjelkner
 **Last Updated**: January 2026  
-**Next Review**: April 2026
+**Next Review**: March 2026

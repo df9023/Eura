@@ -139,6 +139,9 @@ class RuleModule:
                 evaluated_at=datetime.utcnow().isoformat() + "Z"
             )
         
+        if self.rule_id == "CRA-BASE-003":
+            return self._evaluate_vulnerability_management(evidence)
+        
         # Default dependency rule evaluation
         return RuleResult(
             rule_id=self.rule_id,
@@ -147,6 +150,109 @@ class RuleModule:
             reason="Dependency rule evaluation not fully implemented",
             evidence={},
             evaluated_at=datetime.utcnow().isoformat() + "Z"
+        )
+    
+    def _evaluate_vulnerability_management(self, evidence: Dict[str, Any]) -> RuleResult:
+        """Evaluate CRA-BASE-003 — Dependency Vulnerability Management.
+
+        Uses OSV vulnerability scan results when available.  Falls back to
+        checking for the presence of vulnerability management tooling (e.g.
+        dependabot.yml, security-scan workflow).
+        """
+        vuln_report = evidence.get("vulnerability_report")
+        repo_files = evidence.get("repo_files", [])
+
+        # If we have actual OSV data, use it
+        if vuln_report is not None:
+            vuln_count = vuln_report.get("vulnerability_count", 0)
+            critical = vuln_report.get("critical_count", 0)
+            high = vuln_report.get("high_count", 0)
+            vulnerable_pkgs = vuln_report.get("vulnerable_count", 0)
+            total_deps = vuln_report.get("total_dependencies", 0)
+
+            # Build concise evidence
+            top_vulns = vuln_report.get("vulnerabilities", [])[:10]
+            evidence_data = {
+                "total_dependencies": total_deps,
+                "vulnerable_packages": vulnerable_pkgs,
+                "vulnerability_count": vuln_count,
+                "critical_count": critical,
+                "high_count": high,
+                "top_vulnerabilities": [
+                    {
+                        "id": v.get("vuln_id", v.get("id", "")),
+                        "package": v.get("affected_package", ""),
+                        "severity": v.get("severity", "UNKNOWN"),
+                        "fixed_version": v.get("fixed_version", ""),
+                    }
+                    for v in top_vulns
+                ],
+            }
+
+            if critical > 0 or high > 0:
+                return RuleResult(
+                    rule_id=self.rule_id,
+                    status="FAIL",
+                    confidence=0.95,
+                    reason=(
+                        f"Found {vuln_count} known vulnerability(ies) in {vulnerable_pkgs} package(s) "
+                        f"({critical} critical, {high} high). Update affected dependencies."
+                    ),
+                    evidence=evidence_data,
+                    evaluated_at=datetime.utcnow().isoformat() + "Z",
+                )
+
+            if vuln_count > 0:
+                # Medium/low only — pass with advisory
+                return RuleResult(
+                    rule_id=self.rule_id,
+                    status="PASS",
+                    confidence=0.8,
+                    reason=(
+                        f"Found {vuln_count} low/medium vulnerability(ies). "
+                        f"No critical or high severity issues."
+                    ),
+                    evidence=evidence_data,
+                    evaluated_at=datetime.utcnow().isoformat() + "Z",
+                )
+
+            # No vulnerabilities found
+            return RuleResult(
+                rule_id=self.rule_id,
+                status="PASS",
+                confidence=0.9,
+                reason=f"No known vulnerabilities found in {total_deps} dependencies (OSV scan)",
+                evidence=evidence_data,
+                evaluated_at=datetime.utcnow().isoformat() + "Z",
+            )
+
+        # Fallback: no OSV data — check for tooling presence
+        vuln_management_files = [
+            ".github/dependabot.yml",
+            ".github/workflows/security-scan.yml",
+            ".github/workflows/dependency-scan.yml",
+            "docs/vulnerability-management.md",
+            ".snyk",
+        ]
+        found = [f for f in vuln_management_files if f in repo_files]
+
+        if found:
+            return RuleResult(
+                rule_id=self.rule_id,
+                status="PASS",
+                confidence=0.6,
+                reason=f"Vulnerability management tooling detected: {', '.join(found[:3])}",
+                evidence={"found_files": found},
+                evaluated_at=datetime.utcnow().isoformat() + "Z",
+            )
+
+        return RuleResult(
+            rule_id=self.rule_id,
+            status="FAIL",
+            confidence=0.6,
+            reason="No vulnerability management tooling or OSV scan data available",
+            evidence={"searched_files": vuln_management_files},
+            evaluated_at=datetime.utcnow().isoformat() + "Z",
         )
     
     def _evaluate_content(self, evidence: Dict[str, Any]) -> RuleResult:
@@ -203,7 +309,8 @@ class SignalBuilder:
         findings: List[Finding],
         dependencies: List[Dependency],
         repo_files: List[str],
-        ai_components: Optional[Dict[str, Any]] = None
+        ai_components: Optional[Dict[str, Any]] = None,
+        vulnerability_report: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Extract signals from scan results.
@@ -213,10 +320,16 @@ class SignalBuilder:
             dependencies: List of dependencies
             repo_files: List of file paths
             ai_components: Optional AI detection results
+            vulnerability_report: Optional OSV vulnerability report dict
         
         Returns:
             Dictionary of signals for rule evaluation
         """
+        # Compute vulnerable dependency count from OSV report
+        vuln_dep_count = 0
+        if vulnerability_report:
+            vuln_dep_count = vulnerability_report.get("vulnerable_count", 0)
+
         signals = {
             "has_security_policy": any(
                 "security" in f.lower() and f.endswith(".md") for f in repo_files
@@ -238,7 +351,7 @@ class SignalBuilder:
             "has_hardcoded_secrets": any(
                 getattr(f, "category", None) == "secrets" for f in findings
             ),
-            "vulnerable_dependency_count": 0,  # Would need vulnerability DB integration
+            "vulnerable_dependency_count": vuln_dep_count,
             "has_security_testing": False,  # Would need CI/CD config parsing
             "release_tag_count": 0,  # Would need git API
             "days_since_last_update": 0,  # Would need git API
@@ -260,7 +373,13 @@ class SignalBuilder:
 class EvidenceCollector:
     """Collects evidence required for rule evaluation."""
     
-    def __init__(self, repo_files: List[str], findings: List[Finding], dependencies: List[Dependency]):
+    def __init__(
+        self,
+        repo_files: List[str],
+        findings: List[Finding],
+        dependencies: List[Dependency],
+        vulnerability_report: Optional[Dict[str, Any]] = None,
+    ):
         """
         Initialize evidence collector.
         
@@ -268,10 +387,12 @@ class EvidenceCollector:
             repo_files: List of file paths in repository
             findings: List of security findings
             dependencies: List of dependencies
+            vulnerability_report: Optional OSV vulnerability report dict
         """
         self.repo_files = repo_files
         self.findings = findings
         self.dependencies = dependencies
+        self.vulnerability_report = vulnerability_report
     
     def collect_evidence(self, rule: RuleModule) -> Dict[str, Any]:
         """
@@ -288,6 +409,10 @@ class EvidenceCollector:
             "findings": self.findings,
             "dependencies": self.dependencies,
         }
+        
+        # Add vulnerability report if available
+        if self.vulnerability_report is not None:
+            evidence["vulnerability_report"] = self.vulnerability_report
         
         # Add file existence evidence
         for ev_spec in rule.definition.get("required_evidence", []):
@@ -360,7 +485,8 @@ class RuleEvaluationEngine:
         regulations: Optional[List[str]] = None,
         ai_components: Optional[Dict[str, Any]] = None,
         repo: Optional[Any] = None,
-        read_file_func: Optional[Any] = None
+        read_file_func: Optional[Any] = None,
+        vulnerability_report: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Evaluate repository against all applicable rules.
@@ -373,6 +499,7 @@ class RuleEvaluationEngine:
             ai_components: Optional AI detection results
             repo: Optional GitHub repo object
             read_file_func: Optional function to read file content
+            vulnerability_report: Optional OSV vulnerability report dict
         
         Returns:
             Dictionary with compliance report containing rule_results
@@ -393,10 +520,14 @@ class RuleEvaluationEngine:
             }
         
         # Build signals
-        signals = self.signal_builder.build_signals(findings, dependencies, repo_files, ai_components)
+        signals = self.signal_builder.build_signals(
+            findings, dependencies, repo_files, ai_components, vulnerability_report
+        )
         
         # Collect base evidence
-        evidence_collector = EvidenceCollector(repo_files, findings, dependencies)
+        evidence_collector = EvidenceCollector(
+            repo_files, findings, dependencies, vulnerability_report
+        )
         
         # Evaluate rules in parallel (except documentation rules that need async LLM)
         rule_results = await self._evaluate_rules_parallel(

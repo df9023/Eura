@@ -407,6 +407,28 @@ async def execute_scan(
         logger.info("File analysis complete: processed=%d, failed=%d, findings=%d, dependencies=%d", 
                    files_processed, files_failed, len(findings), len(dependencies))
 
+        # OSV vulnerability scan (after dependency extraction)
+        vulnerability_report: Optional[Dict[str, Any]] = None
+        if dependencies:
+            try:
+                from app.services.osv import scan_dependencies as osv_scan
+                logger.info("Running OSV vulnerability scan for %d dependencies...", len(dependencies))
+                osv_result = await osv_scan(dependencies)
+                vulnerability_report = osv_result.to_dict()
+                
+                if osv_result.vulnerability_count > 0:
+                    logger.warning(
+                        "OSV: Found %d vulnerabilities in %d packages (critical=%d, high=%d)",
+                        osv_result.vulnerability_count,
+                        osv_result.vulnerable_count,
+                        osv_result.critical_count,
+                        osv_result.high_count,
+                    )
+                else:
+                    logger.info("OSV: No known vulnerabilities found")
+            except Exception as e:
+                logger.warning("OSV vulnerability scan failed (non-fatal): %s", str(e)[:200])
+
         # Insert findings into database (only if project_id is provided and Supabase is configured)
         if project_id and supabase:
             logger.info("Inserting findings into database: count=%d", len(findings))
@@ -456,7 +478,8 @@ async def execute_scan(
                 repo_files=all_files,  # Use all_files to check for documentation files
                 repo=repo,
                 read_file_func=read_file_with_rate_limit,
-                ai_components=ai_components if 'ai_components' in locals() else None
+                ai_components=ai_components if 'ai_components' in locals() else None,
+                vulnerability_report=vulnerability_report,
             )
             # Phase 0: Set evaluated_at once at the end of orchestration, reused in persistence writes
             # Use the timestamp from compliance evaluation as the single source of truth

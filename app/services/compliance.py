@@ -362,7 +362,8 @@ async def evaluate_repo(
     repo_files: List[str],
     repo: Optional[Any] = None,
     read_file_func: Optional[Any] = None,
-    ai_components: Optional[Dict[str, Any]] = None
+    ai_components: Optional[Dict[str, Any]] = None,
+    vulnerability_report: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Evaluate all CRA compliance rules against scan results.
@@ -376,6 +377,7 @@ async def evaluate_repo(
         repo: Optional GitHub repo object for reading files
         read_file_func: Optional function to read file content (repo, path) -> content
         ai_components: Optional AI detection results for AI Act rules
+        vulnerability_report: Optional OSV vulnerability report dict
     
     Returns:
         Dictionary with compliance_report containing rule_results
@@ -391,6 +393,7 @@ async def evaluate_repo(
         regulations=None,  # Evaluate all regulations
         ai_components=ai_components,
         repo=repo,
-        read_file_func=read_file_func
+        read_file_func=read_file_func,
+        vulnerability_report=vulnerability_report,
     )
 

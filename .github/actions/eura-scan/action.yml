@@ -1,0 +1,242 @@
+name: 'EURA Compliance Scan'
+description: 'Scan repository for EU CRA and AI Act compliance'
+author: 'EURA'
+
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  environment:
+    description: 'Deployment environment (dev, staging, production, eu-production)'
+    required: false
+    default: 'production'
+  fail-on-block:
+    description: 'Fail the workflow if verdict is SHIP_BLOCKED'
+    required: false
+    default: 'true'
+  output-format:
+    description: 'Output format (pretty, json)'
+    required: false
+    default: 'pretty'
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.11'
+  working-directory:
+    description: 'Directory to scan (relative to repository root)'
+    required: false
+    default: '.'
+  comment-on-pr:
+    description: 'Post compliance summary as PR comment'
+    required: false
+    default: 'true'
+
+outputs:
+  verdict:
+    description: 'Compliance verdict (SHIP_ALLOWED or SHIP_BLOCKED)'
+    value: ${{ steps.scan.outputs.verdict }}
+  score:
+    description: 'Overall compliance score'
+    value: ${{ steps.scan.outputs.score }}
+  blocking-rules:
+    description: 'Comma-separated list of blocking rule IDs'
+    value: ${{ steps.scan.outputs.blocking_rules }}
+  report-path:
+    description: 'Path to the JSON report file'
+    value: ${{ steps.scan.outputs.report_path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-eura-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-eura-
+
+    - name: Install EURA
+      shell: bash
+      run: |
+        # Clone EURA if not already present (for external repos using this action)
+        if [ ! -f "cli/eura_cli.py" ]; then
+          echo "Installing EURA from pip (when published) or cloning..."
+          # For now, install dependencies directly
+          pip install fastapi pydantic PyGithub openai python-dotenv PyYAML supabase httpx
+        else
+          echo "EURA already present, installing dependencies..."
+          pip install -r requirements.txt
+        fi
+
+    - name: Run EURA Compliance Scan
+      id: scan
+      shell: bash
+      env:
+        OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        # Run the scan
+        SCAN_DIR="${{ inputs.working-directory }}"
+        ENVIRONMENT="${{ inputs.environment }}"
+        REPORT_PATH="eura-report.json"
+        
+        echo "🔍 Running EURA compliance scan..."
+        echo "   Directory: $SCAN_DIR"
+        echo "   Environment: $ENVIRONMENT"
+        echo ""
+        
+        # Run scan and capture output
+        if python -m cli.eura_cli scan "$SCAN_DIR" \
+          --environment "$ENVIRONMENT" \
+          --format json \
+          --output "$REPORT_PATH" 2>&1; then
+          SCAN_EXIT_CODE=0
+        else
+          SCAN_EXIT_CODE=$?
+        fi
+        
+        # Parse results from JSON report
+        if [ -f "$REPORT_PATH" ]; then
+          VERDICT=$(python -c "import json; r=json.load(open('$REPORT_PATH')); print(r.get('verdict', 'UNKNOWN'))")
+          SCORE=$(python -c "import json; r=json.load(open('$REPORT_PATH')); scores=r.get('compliance_scores', {}); print(next(iter(scores.values()), {}).get('score', 0) if scores else 0)")
+          BLOCKING=$(python -c "import json; r=json.load(open('$REPORT_PATH')); print(','.join(r.get('blocking_rules', [])))")
+        else
+          VERDICT="UNKNOWN"
+          SCORE="0"
+          BLOCKING=""
+        fi
+        
+        # Set outputs
+        echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
+        echo "score=$SCORE" >> $GITHUB_OUTPUT
+        echo "blocking_rules=$BLOCKING" >> $GITHUB_OUTPUT
+        echo "report_path=$REPORT_PATH" >> $GITHUB_OUTPUT
+        
+        # Print summary
+        echo ""
+        echo "════════════════════════════════════════════════════════════"
+        if [ "$VERDICT" = "SHIP_ALLOWED" ]; then
+          echo "✅ VERDICT: SHIP_ALLOWED"
+        else
+          echo "❌ VERDICT: SHIP_BLOCKED"
+        fi
+        echo "   Score: $SCORE/100"
+        if [ -n "$BLOCKING" ]; then
+          echo "   Blocking Rules: $BLOCKING"
+        fi
+        echo "════════════════════════════════════════════════════════════"
+        
+        # Also print pretty output for logs
+        if [ "${{ inputs.output-format }}" = "pretty" ]; then
+          python -m cli.eura_cli scan "$SCAN_DIR" --environment "$ENVIRONMENT" --format pretty || true
+        fi
+        
+        # Fail if blocked and fail-on-block is true
+        if [ "${{ inputs.fail-on-block }}" = "true" ] && [ "$VERDICT" = "SHIP_BLOCKED" ]; then
+          echo ""
+          echo "::error::Compliance check failed: SHIP_BLOCKED"
+          exit 1
+        fi
+
+    - name: Comment on PR
+      if: inputs.comment-on-pr == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const reportPath = '${{ steps.scan.outputs.report_path }}';
+          
+          let report = {};
+          try {
+            report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+          } catch (e) {
+            console.log('Could not read report file:', e.message);
+            return;
+          }
+          
+          const verdict = report.verdict || 'UNKNOWN';
+          const scores = report.compliance_scores || {};
+          const blocking = report.blocking_rules || [];
+          const ruleResults = report.rule_results || [];
+          
+          const passed = ruleResults.filter(r => r.status === 'PASS').length;
+          const failed = ruleResults.filter(r => r.status === 'FAIL').length;
+          const unknown = ruleResults.filter(r => r.status === 'UNKNOWN').length;
+          
+          const verdictEmoji = verdict === 'SHIP_ALLOWED' ? '✅' : '❌';
+          const verdictText = verdict === 'SHIP_ALLOWED' ? 'SHIP_ALLOWED' : 'SHIP_BLOCKED';
+          
+          let scoreLines = '';
+          for (const [reg, data] of Object.entries(scores)) {
+            scoreLines += `| ${reg} | ${data.score?.toFixed(1) || 0}/100 | ${data.passed || 0} | ${data.failed || 0} |\n`;
+          }
+          
+          let blockingList = '';
+          if (blocking.length > 0) {
+            blockingList = '\n\n**Blocking Rules:**\n' + blocking.map(r => `- \`${r}\``).join('\n');
+          }
+          
+          const body = `## ${verdictEmoji} EURA Compliance Scan
+          
+          **Verdict: ${verdictText}**
+          
+          | Regulation | Score | Passed | Failed |
+          |------------|-------|--------|--------|
+          ${scoreLines}
+          
+          **Rules Summary:** ${passed} passed, ${failed} failed, ${unknown} unknown${blockingList}
+          
+          <details>
+          <summary>View Full Report</summary>
+          
+          \`\`\`json
+          ${JSON.stringify(report, null, 2).slice(0, 50000)}
+          \`\`\`
+          </details>
+          
+          ---
+          *Scanned with [EURA](https://github.com/your-org/eura) - EU Regulatory Compliance Scanner*`;
+          
+          // Find existing comment
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          
+          const botComment = comments.find(c => 
+            c.user.type === 'Bot' && 
+            c.body.includes('EURA Compliance Scan')
+          );
+          
+          if (botComment) {
+            // Update existing comment
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: body
+            });
+          } else {
+            // Create new comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+          }
+
+    - name: Upload Report Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: eura-compliance-report
+        path: ${{ steps.scan.outputs.report_path }}
+        retention-days: 30

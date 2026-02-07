@@ -1,6 +1,6 @@
 # EURA 2.0 Implementation Status Summary
 
-**Last Updated:** January 30, 2026  
+**Last Updated:** February 7, 2026  
 **Workspace:** Git worktree at `C:\Users\danie\.cursor\worktrees\Eura\wpn`
 
 ---
@@ -23,7 +23,9 @@ What Eura 2.0 can do today:
 | 10 | **Database persistence** | Full schema (12 tables) and data access layer for scans, projects, repositories, rule results, compliance reports, findings, dependencies, AI systems, model cards. Ready for Supabase via `QUICK_START_DATABASE.sql`. |
 | 11 | **REST API (v1)** | 25+ endpoints: run scan, get/list scans, projects, repositories, rules, compliance reports; CRUD for projects/repos; optional project_id for persistence. |
 | 12 | **SBOM generation** | SPDX 2.3 and CycloneDX 1.5 JSON from a dependency list. `POST /api/v1/sbom/generate` (no GitHub/DB required). Supports CRA-SBOM-004. |
-| 13 | **Tests** | Phase 0 contract tests (execute_scan → ScanResultV1, verdict, timezone); SBOM tests (7). Pydantic `model_dump` used; verdict test aligned with PRD (production = HIGH blocks). |
+| 13 | **Compliance badges** | SVG badge endpoints: `GET /api/v1/badges/{project_id}`, `.../scan/{scan_id}`, `.../repo/{owner}/{repo}`. Badge types: verdict, score, compliance. Styles: flat, flat-square. |
+| 14 | **OSV vulnerability scanning** | Queries osv.dev batch API for known CVEs in dependencies. Supports PyPI, npm, Go, crates.io, RubyGems, Maven, NuGet, Packagist. CRA-BASE-003 now evaluates real vulnerability data. |
+| 15 | **Tests** | Phase 0 contract tests; SBOM (7), badge (45), OSV (49) tests. 101 tests total. |
 
 ---
 
@@ -80,7 +82,7 @@ EURA must generate machine-readable artifacts for EU regulatory audits (see PRD 
 
 | Gap | Regulation | Impact | Priority |
 |-----|------------|--------|----------|
-| **No vulnerability DB** (OSV/Snyk) | CRA Art. 10 | Can't check for known CVEs | HIGH |
+| ~~**No vulnerability DB**~~ ~~(OSV/Snyk)~~ | ~~CRA Art. 10~~ | ~~Can't check for known CVEs~~ | ✅ DONE |
 | **Only 18 CRA rules** (need 50+) | CRA | Incomplete coverage | HIGH |
 | **No license compliance** | CRA Art. 10 | Can't verify SBOM licenses | MEDIUM |
 | **No transitive deps** | CRA Art. 10 | Misses indirect vulnerabilities | MEDIUM |
@@ -91,7 +93,7 @@ EURA must generate machine-readable artifacts for EU regulatory audits (see PRD 
 
 | Feature | Why It Matters | Priority |
 |---------|----------------|----------|
-| **Compliance badges** | README badges like "CRA Compliant" | HIGH |
+| ~~**Compliance badges**~~ | ~~README badges like "CRA Compliant"~~ | ✅ DONE |
 | **Remediation templates** | Auto-generate SECURITY.md, model cards | HIGH |
 | **Historical trends** | Track score over time per repo | MEDIUM |
 | **Multi-repo dashboard** | Org-wide compliance view | MEDIUM |
@@ -101,31 +103,33 @@ EURA must generate machine-readable artifacts for EU regulatory audits (see PRD 
 
 ## 🎯 What to Do Next (Prioritized)
 
+### Completed ✅
+
+1. ~~**CLI Tool for Local Scanning**~~ ✅ DONE  
+   `python -m cli.eura_cli scan ./path` works offline without GitHub.
+   - See `cli/eura_cli.py` and `app/services/local_scanner.py`
+
+2. ~~**GitHub Action (CI/CD Integration)**~~ ✅ DONE  
+   `.github/actions/eura-scan/action.yml` runs CLI in workflows.
+   - See `.github/workflows/eura-compliance.yml` for example
+
+3. ~~**Compliance Badge Endpoint**~~ ✅ DONE  
+   SVG badge generation for READMEs and dashboards.
+   - `GET /api/v1/badges/{project_id}` — badge from latest project scan
+   - `GET /api/v1/badges/scan/{scan_id}` — badge from specific scan
+   - `GET /api/v1/badges/repo/{owner}/{repo}` — badge by repo name
+   - Query params: `?type=verdict|score|compliance`, `?regulation=CRA|AI_ACT`, `?style=flat|flat-square`
+   - See `app/services/badge.py` and `tests/test_badges.py` (45 tests)
+
+4. ~~**OSV Vulnerability Integration**~~ ✅ DONE  
+   Dependencies checked against OSV.dev API for known CVEs.
+   - `app/services/osv.py` — async OSV batch API client
+   - CRA-BASE-003 now evaluates real vulnerability data (critical/high → FAIL)
+   - Integrated into both GitHub scans (`scan_executor.py`) and CLI scans (`local_scanner.py`)
+   - Supports: PyPI, npm, Go, crates.io, RubyGems, Maven, NuGet, Packagist
+   - See `tests/test_osv.py` (49 tests)
+
 ### Immediate (This Sprint)
-
-1. **CLI Tool for Local Scanning** ⭐ NEW  
-   Create `eura scan ./path` command that works offline without GitHub.
-   - Reuses existing services (file_discovery, dependencies, secrets, ai_detector, rule_engine)
-   - No database required
-   - Outputs JSON or pretty-printed report to terminal
-   - Enables: local dev feedback, CI without API, offline compliance checks
-
-2. **GitHub Action (CI/CD Integration)** ⭐ Section 3.6  
-   Create `.github/actions/eura-scan/action.yml` that calls API or runs CLI.
-   - Posts PR check status (pass/fail)
-   - Comments compliance summary on PR
-   - Fails workflow on SHIP_BLOCKED
-
-3. **Compliance Badge Endpoint** ⭐ NEW  
-   `GET /api/v1/badges/{project_id}` returns SVG badge for README.
-   - "CRA: 92%" or "CRA: COMPLIANT" / "CRA: NON-COMPLIANT"
-
-### Short-term (Next 2 Sprints)
-
-4. **OSV Vulnerability Integration**  
-   Check dependencies against OSV.dev API for known CVEs.
-   - CRA-BASE-003 becomes functional
-   - Critical for real compliance value
 
 5. **Expand CRA Rules to 30+**  
    Add: CRA-SEC-* (5), CRA-VULN-* (4), CRA-DOC-* (4), CRA-LIFE-* (4)
@@ -163,15 +167,18 @@ EURA must generate machine-readable artifacts for EU regulatory audits (see PRD 
 
 ## 🎯 Overview
 
-**Core engine: ~95% complete.** Sections 3.1–3.4 and most of 3.5 implemented. SBOM, verdict logic, and tests working.
+**Core engine: ~97% complete.** Sections 3.1–3.6 implemented. SBOM, CLI, GitHub Action, verdict logic, and tests working.
 
-**Key insight:** The backend is solid, but **developer experience and market fit features are the gap.** Next priorities:
+**Recent additions:**
+- ✅ **OSV vulnerability scanning** — Dependencies checked against osv.dev for known CVEs (CRA-BASE-003 functional)
+- ✅ **Compliance badges** — `GET /api/v1/badges/...` SVG badges for READMEs (verdict, score, compliance)
+- ✅ **CLI tool** — `python -m cli.eura_cli scan ./path` for local offline scanning
+- ✅ **GitHub Action** — `.github/actions/eura-scan` for CI/CD with PR comments
 
-1. **CLI tool** — Let devs scan locally without GitHub or API
-2. **GitHub Action** — Real CI/CD integration with PR checks
-3. **Compliance badges** — Visual proof for README
-4. **OSV integration** — Real vulnerability data (CRA-BASE-003)
-5. **More rules** — From 18 to 35+ CRA rules
+**Next priorities:**
+1. ~~**Compliance badges**~~ — ✅ DONE (3 endpoints, 3 badge types, 2 styles)
+2. ~~**OSV integration**~~ — ✅ DONE (OSV.dev batch API, 8 ecosystems, CRA-BASE-003 functional)
+3. **More rules** — From 18 to 35+ CRA rules
 
 See **Gap Analysis** section above for full prioritized list.
 
@@ -666,9 +673,9 @@ See **Gap Analysis** section above for full prioritized list.
 | 3.3 Compliance Evaluation Engine | ✅ Complete | 100% |
 | 3.4 Data Persistence | ✅ Complete | 100% |
 | 3.5 API Specification | ✅ Mostly Complete | 83% |
-| 3.6 CI/CD Integration | ⏳ Not Started | 0% |
+| 3.6 CI/CD Integration | ✅ Complete | 100% |
 
-**Overall Core Implementation:** ~95% Complete
+**Overall Core Implementation:** ~97% Complete
 
 ---
 
@@ -688,15 +695,61 @@ Supports CRA-SBOM-004: SBOM exportable in standard format (SPDX, CycloneDX). No 
 
 ---
 
+## ✅ CLI Tool - COMPLETE
+
+**Status:** Complete (local scanning without GitHub or API)
+
+**What Was Done:**
+- `cli/eura_cli.py` - Full CLI interface with argparse
+- `app/services/local_scanner.py` - LocalScanner service for directory scanning
+- Supports: file discovery, dependencies, secrets, AI detection, rule evaluation, verdicts
+- Output formats: `--format pretty` (human-readable) or `--format json`
+- Environment selection: `--environment dev|staging|production|eu-production`
+
+**Usage:**
+```bash
+python -m cli.eura_cli scan ./my-project
+python -m cli.eura_cli scan . --environment production --format json --output report.json
+```
+
+**Exit codes:** 0 = SHIP_ALLOWED, 1 = SHIP_BLOCKED
+
+---
+
+## ✅ GitHub Action - COMPLETE (Section 3.6)
+
+**Status:** Complete
+
+**What Was Done:**
+- `.github/actions/eura-scan/action.yml` - Composite GitHub Action
+- `.github/workflows/eura-compliance.yml` - Example workflow for this repo
+- `.github/workflows/examples/standalone-scan.yml` - Example for external repos
+
+**Features:**
+- Runs EURA compliance scan on push/PR
+- Posts compliance summary as PR comment
+- Uploads JSON report as artifact
+- Configurable: environment, fail-on-block, output format
+- Sets outputs: verdict, score, blocking_rules, report_path
+
+**Usage in any repository:**
+```yaml
+- uses: your-org/eura/.github/actions/eura-scan@main
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  with:
+    environment: production
+    fail-on-block: true
+    comment-on-pr: true
+```
+
+---
+
 ## 🎯 Next Steps (For Future Sessions)
 
-See **What to Do Next (Prioritized)** at the top of this document. Summary:
+**Immediate priority:** Compliance badges, OSV vulnerability integration.
 
-**Immediate priority:** CLI tool for local scanning, GitHub Action for CI/CD, compliance badges.
-
-**Why CLI first:** It unlocks offline scanning, faster dev feedback, CI without hosted API, and reuses all existing services — high value, medium effort.
-
-**Then:** OSV vulnerability integration (makes CRA-BASE-003 real), expand to 35+ rules, remediation generators.
+**Then:** Expand to 35+ rules, remediation generators, VEX/CSAF/SARIF exports.
 
 ---
 
@@ -736,5 +789,5 @@ See **What to Do Next (Prioritized)** at the top of this document. Summary:
 
 ---
 
-**Last Updated:** January 30, 2026  
-**Summary:** Added gap analysis (DX, compliance, competitive). Reprioritized: CLI tool, GitHub Action, badges, OSV, more rules. Core engine solid; focus shifts to developer experience and market fit.
+**Last Updated:** February 7, 2026  
+**Summary:** Added OSV vulnerability scanning (49 tests, 8 ecosystems, CRA-BASE-003 functional) and compliance badge endpoints (45 tests). Next: expand to 35+ CRA rules, SARIF/VEX exports.

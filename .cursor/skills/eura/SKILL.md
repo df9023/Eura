@@ -98,6 +98,20 @@ pytest tests/test_sbom.py -v
 # Local scan (CLI)
 python -m cli.eura_cli scan ./path/to/repo
 python -m cli.eura_cli scan . --format json
+python -m cli.eura_cli scan . --environment production --output report.json
+```
+
+### GitHub Action (CI/CD)
+
+```yaml
+# In your .github/workflows/compliance.yml
+- uses: your-org/eura/.github/actions/eura-scan@main
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  with:
+    environment: production
+    fail-on-block: true      # Fail workflow on SHIP_BLOCKED
+    comment-on-pr: true      # Post summary as PR comment
 ```
 
 ### Key API Endpoints
@@ -109,6 +123,9 @@ GET  /api/v1/rules              # List all rules
 GET  /api/v1/rules?regulation=CRA  # Filter by regulation
 POST /api/v1/sbom/generate      # Generate SBOM (✅ implemented)
 GET  /api/v1/projects           # List projects
+GET  /api/v1/badges/{project_id}          # SVG badge for project (✅ implemented)
+GET  /api/v1/badges/scan/{scan_id}        # SVG badge for scan
+GET  /api/v1/badges/repo/{owner}/{repo}   # SVG badge by repo name
 ```
 
 ### Compliance Artifact Exports (PRD 3.8)
@@ -118,6 +135,7 @@ Machine-readable exports for EU regulatory audits:
 | Artifact | Endpoint | Status | Format |
 |----------|----------|--------|--------|
 | **SBOM** | `POST /api/v1/sbom/generate` | ✅ Done | CycloneDX/SPDX JSON |
+| **OSV Vuln Scan** | (integrated into scans) | ✅ Done | osv.dev batch API |
 | **VEX** | `POST /api/v1/exports/vex` | 🔲 TODO | OpenVEX JSON |
 | **CSAF** | `POST /api/v1/exports/csaf` | 🔲 TODO | CSAF 2.0 JSON |
 | **SARIF** | `POST /api/v1/exports/sarif` | 🔲 TODO | SARIF 2.1.0 JSON |

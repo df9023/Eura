@@ -1,0 +1,43 @@
+# EURA Compliance Scan Workflow
+# This workflow runs EU CRA and AI Act compliance checks on your code.
+#
+# To use this in your own repository:
+# 1. Copy this file to .github/workflows/eura-compliance.yml
+# 2. Set OPENAI_API_KEY secret in your repository settings
+# 3. Customize the inputs as needed
+
+name: EURA Compliance
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+  workflow_dispatch:  # Allow manual trigger
+
+# Only allow one scan per PR at a time
+concurrency:
+  group: eura-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compliance-scan:
+    name: EU Regulatory Compliance
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      pull-requests: write  # Required for PR comments
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run EURA Compliance Scan
+        uses: ./.github/actions/eura-scan
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          environment: production
+          fail-on-block: true
+          comment-on-pr: true

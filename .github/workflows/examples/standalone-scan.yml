@@ -1,0 +1,82 @@
+# Standalone EURA Compliance Scan
+# Use this workflow in any repository without cloning EURA.
+# It installs EURA via pip (when published) or from GitHub.
+#
+# Setup:
+# 1. Copy this file to your repo's .github/workflows/eura.yml
+# 2. Add OPENAI_API_KEY to your repository secrets
+# 3. Push and watch your compliance checks run!
+
+name: EURA Compliance Check
+
+on:
+  pull_request:
+    branches: [main, master, develop]
+  push:
+    branches: [main, master]
+
+jobs:
+  eura-scan:
+    name: CRA & AI Act Compliance
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install EURA
+        run: |
+          # Install from GitHub (replace with pip install eura when published)
+          pip install git+https://github.com/your-org/eura.git
+          
+          # Or install dependencies manually for now:
+          pip install fastapi pydantic PyGithub openai python-dotenv PyYAML supabase httpx
+
+      - name: Clone EURA (temporary until pip package)
+        run: |
+          git clone --depth 1 https://github.com/your-org/eura.git /tmp/eura
+
+      - name: Run Compliance Scan
+        id: scan
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          cd /tmp/eura
+          
+          # Scan the checked out repository
+          python -m cli.eura_cli scan ${{ github.workspace }} \
+            --environment production \
+            --format json \
+            --output /tmp/report.json
+          
+          # Parse verdict
+          VERDICT=$(python -c "import json; print(json.load(open('/tmp/report.json')).get('verdict', 'UNKNOWN'))")
+          echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
+          
+          # Print summary
+          python -m cli.eura_cli scan ${{ github.workspace }} \
+            --environment production \
+            --format pretty || true
+
+      - name: Check Verdict
+        if: steps.scan.outputs.verdict == 'SHIP_BLOCKED'
+        run: |
+          echo "::error::Compliance check failed: SHIP_BLOCKED"
+          echo "Review the scan output above for details on failing rules."
+          exit 1
+
+      - name: Upload Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compliance-report
+          path: /tmp/report.json

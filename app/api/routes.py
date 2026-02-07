@@ -19,6 +19,12 @@ from app.schemas.api_v1 import (
 )
 from app.services.database import get_db_client
 from app.services.sbom import generate_sbom
+from app.services.badge import (
+    generate_verdict_badge,
+    generate_score_badge,
+    generate_compliance_badge,
+    generate_error_badge,
+)
 
 router = APIRouter()
 
@@ -850,3 +856,248 @@ async def generate_sbom_v1(request: SbomGenerateRequestV1):
         commit_sha=request.commit_sha,
     )
     return sbom
+
+
+# ============================================================================
+# V1 API Endpoints - Compliance Badges
+# ============================================================================
+
+# SVG response headers (cache for 5 minutes, allow CDN caching)
+_BADGE_HEADERS = {
+    "Content-Type": "image/svg+xml",
+    "Cache-Control": "public, max-age=300, s-maxage=300",
+}
+
+
+def _badge_query_params(
+    style: Optional[str] = Query("flat", regex="^(flat|flat-square)$", description="Badge style"),
+    regulation: Optional[str] = Query(None, description="Regulation filter (CRA, AI_ACT)"),
+    type: Optional[str] = Query("verdict", regex="^(verdict|score|compliance)$", description="Badge type"),
+):
+    """Shared query parameters for badge endpoints."""
+    return {"style": style or "flat", "regulation": regulation, "type": type or "verdict"}
+
+
+def _build_badge_svg(
+    verdict: Optional[str],
+    score: Optional[float],
+    style: str,
+    regulation: Optional[str],
+    badge_type: str,
+) -> str:
+    """Build badge SVG from scan/report data."""
+    if badge_type == "score" and score is not None:
+        return generate_score_badge(score, regulation or "CRA", style)
+    if badge_type == "compliance" and verdict:
+        return generate_compliance_badge(verdict, regulation or "CRA", style)
+    if verdict:
+        label = regulation or "EURA"
+        return generate_verdict_badge(verdict, label, style)
+    return generate_error_badge()
+
+
+@router.get("/v1/badges/{project_id}")
+async def get_project_badge(
+    project_id: str = Path(..., description="Project ID"),
+    style: Optional[str] = Query("flat", regex="^(flat|flat-square)$", description="Badge style"),
+    regulation: Optional[str] = Query(None, description="Regulation filter (CRA, AI_ACT)"),
+    type: Optional[str] = Query("verdict", regex="^(verdict|score|compliance)$", description="Badge type: verdict, score, or compliance"),
+):
+    """
+    Get a compliance badge SVG for a project.
+
+    Returns an SVG image based on the project's latest compliance scan.
+    Embed in your README with:
+
+        ![EURA Compliance](https://your-api/api/v1/badges/{project_id})
+        ![CRA Score](https://your-api/api/v1/badges/{project_id}?type=score&regulation=CRA)
+        ![CRA](https://your-api/api/v1/badges/{project_id}?type=compliance&regulation=CRA)
+    """
+    badge_style = style or "flat"
+    badge_type = type or "verdict"
+
+    if not supabase:
+        svg = generate_error_badge(regulation or "EURA", "no db", badge_style)
+        return Response(content=svg, media_type="image/svg+xml", headers=_BADGE_HEADERS)
+
+    try:
+        # Find latest scan for this project
+        result = (
+            supabase.table("scans")
+            .select("verdict")
+            .eq("project_id", project_id)
+            .eq("status", "completed")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        verdict = None
+        score = None
+
+        if result.data and len(result.data) > 0:
+            verdict = result.data[0].get("verdict")
+
+        # If score badge requested, fetch from compliance_reports
+        if badge_type == "score" and verdict:
+            report_query = (
+                supabase.table("compliance_reports")
+                .select("score, regulation, verdict")
+                .eq("project_id", project_id)
+                .order("evaluated_at", desc=True)
+            )
+            if regulation:
+                report_query = report_query.eq("regulation", regulation)
+            report_query = report_query.limit(1)
+            report_result = report_query.execute()
+
+            if report_result.data and len(report_result.data) > 0:
+                score = report_result.data[0].get("score")
+                # Use regulation-specific verdict if available
+                verdict = report_result.data[0].get("verdict", verdict)
+
+        if not verdict:
+            svg = generate_error_badge(regulation or "EURA", "no scans", badge_style)
+        else:
+            svg = _build_badge_svg(verdict, score, badge_style, regulation, badge_type)
+
+        return Response(content=svg, media_type="image/svg+xml", headers=_BADGE_HEADERS)
+
+    except Exception as e:
+        logger.error("Failed to generate project badge: %s", e)
+        svg = generate_error_badge(regulation or "EURA", "error", badge_style)
+        return Response(content=svg, media_type="image/svg+xml", headers=_BADGE_HEADERS)
+
+
+@router.get("/v1/badges/scan/{scan_id}")
+async def get_scan_badge(
+    scan_id: str = Path(..., description="Scan ID"),
+    style: Optional[str] = Query("flat", regex="^(flat|flat-square)$", description="Badge style"),
+    regulation: Optional[str] = Query(None, description="Regulation filter (CRA, AI_ACT)"),
+    type: Optional[str] = Query("verdict", regex="^(verdict|score|compliance)$", description="Badge type: verdict, score, or compliance"),
+):
+    """
+    Get a compliance badge SVG for a specific scan.
+
+    Returns an SVG image based on a single scan's results.
+    Useful for pinning a badge to a specific point-in-time scan.
+
+        ![Scan Result](https://your-api/api/v1/badges/scan/{scan_id})
+    """
+    badge_style = style or "flat"
+    badge_type = type or "verdict"
+
+    if not supabase:
+        svg = generate_error_badge(regulation or "EURA", "no db", badge_style)
+        return Response(content=svg, media_type="image/svg+xml", headers=_BADGE_HEADERS)
+
+    try:
+        db = get_db_client()
+        scan = db.get_scan(scan_id)
+
+        if not scan:
+            svg = generate_error_badge(regulation or "EURA", "not found", badge_style)
+            return Response(content=svg, media_type="image/svg+xml", headers=_BADGE_HEADERS)
+
+        verdict = scan.get("verdict")
+        score = None
+
+        # Fetch score from compliance_reports if needed
+        if badge_type == "score" and scan.get("project_id"):
+            report_query = (
+                supabase.table("compliance_reports")
+                .select("score, regulation, verdict")
+                .eq("scan_id", scan_id)
+            )
+            if regulation:
+                report_query = report_query.eq("regulation", regulation)
+            report_query = report_query.limit(1)
+            report_result = report_query.execute()
+
+            if report_result.data and len(report_result.data) > 0:
+                score = report_result.data[0].get("score")
+                verdict = report_result.data[0].get("verdict", verdict)
+
+        if not verdict:
+            svg = generate_error_badge(regulation or "EURA", "pending", badge_style)
+        else:
+            svg = _build_badge_svg(verdict, score, badge_style, regulation, badge_type)
+
+        return Response(content=svg, media_type="image/svg+xml", headers=_BADGE_HEADERS)
+
+    except Exception as e:
+        logger.error("Failed to generate scan badge: %s", e)
+        svg = generate_error_badge(regulation or "EURA", "error", badge_style)
+        return Response(content=svg, media_type="image/svg+xml", headers=_BADGE_HEADERS)
+
+
+@router.get("/v1/badges/repo/{owner}/{repo}")
+async def get_repo_badge(
+    owner: str = Path(..., description="Repository owner"),
+    repo: str = Path(..., description="Repository name"),
+    style: Optional[str] = Query("flat", regex="^(flat|flat-square)$", description="Badge style"),
+    regulation: Optional[str] = Query(None, description="Regulation filter (CRA, AI_ACT)"),
+    type: Optional[str] = Query("verdict", regex="^(verdict|score|compliance)$", description="Badge type: verdict, score, or compliance"),
+):
+    """
+    Get a compliance badge SVG by repository owner/name.
+
+    Looks up the latest completed scan for the given repository.
+
+        ![CRA](https://your-api/api/v1/badges/repo/octocat/hello-world?type=compliance&regulation=CRA)
+    """
+    badge_style = style or "flat"
+    badge_type = type or "verdict"
+    repo_name = f"{owner}/{repo}"
+
+    if not supabase:
+        svg = generate_error_badge(regulation or "EURA", "no db", badge_style)
+        return Response(content=svg, media_type="image/svg+xml", headers=_BADGE_HEADERS)
+
+    try:
+        # Find latest completed scan by repo_name
+        result = (
+            supabase.table("scans")
+            .select("id, verdict, project_id")
+            .eq("repo_name", repo_name)
+            .eq("status", "completed")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        verdict = None
+        score = None
+
+        if result.data and len(result.data) > 0:
+            scan = result.data[0]
+            verdict = scan.get("verdict")
+            scan_id = scan.get("id")
+
+            # Fetch score from compliance_reports if needed
+            if badge_type == "score" and scan_id:
+                report_query = (
+                    supabase.table("compliance_reports")
+                    .select("score, regulation, verdict")
+                    .eq("scan_id", scan_id)
+                )
+                if regulation:
+                    report_query = report_query.eq("regulation", regulation)
+                report_query = report_query.limit(1)
+                report_result = report_query.execute()
+
+                if report_result.data and len(report_result.data) > 0:
+                    score = report_result.data[0].get("score")
+                    verdict = report_result.data[0].get("verdict", verdict)
+
+        if not verdict:
+            svg = generate_error_badge(regulation or "EURA", "no scans", badge_style)
+        else:
+            svg = _build_badge_svg(verdict, score, badge_style, regulation, badge_type)
+
+        return Response(content=svg, media_type="image/svg+xml", headers=_BADGE_HEADERS)
+
+    except Exception as e:
+        logger.error("Failed to generate repo badge: %s", e)
+        svg = generate_error_badge(regulation or "EURA", "error", badge_style)
+        return Response(content=svg, media_type="image/svg+xml", headers=_BADGE_HEADERS)

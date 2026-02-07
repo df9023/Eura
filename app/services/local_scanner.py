@@ -238,8 +238,32 @@ class LocalScanner:
             for d in dependencies
         ]
         
+        # 7b. OSV vulnerability scan
+        vulnerability_report = None
+        if dependencies:
+            try:
+                from app.services.osv import scan_dependencies as osv_scan
+                logger.info("Running OSV vulnerability scan for %d dependencies...", len(dependencies))
+                osv_result = await osv_scan(dependencies)
+                vulnerability_report = osv_result.to_dict()
+                
+                if osv_result.vulnerability_count > 0:
+                    logger.warning(
+                        "OSV: Found %d vulnerabilities in %d packages (critical=%d, high=%d)",
+                        osv_result.vulnerability_count,
+                        osv_result.vulnerable_count,
+                        osv_result.critical_count,
+                        osv_result.high_count,
+                    )
+                else:
+                    logger.info("OSV: No known vulnerabilities found")
+            except Exception as e:
+                logger.warning("OSV vulnerability scan failed (non-fatal): %s", str(e)[:200])
+        
         # 8. Create a local file reader function for rule engine
-        def local_read_file(file_path: str) -> Optional[str]:
+        # Note: Signature matches compliance.py which calls read_file_func(repo, file_path)
+        def local_read_file(repo: Any, file_path: str) -> Optional[str]:
+            # repo is ignored for local scanning - we read from file_contents dict
             return file_contents.get(file_path)
         
         # 9. Evaluate rules
@@ -250,7 +274,8 @@ class LocalScanner:
             regulations=regulations,
             ai_components=ai_components,
             repo=None,  # No GitHub repo
-            read_file_func=local_read_file
+            read_file_func=local_read_file,
+            vulnerability_report=vulnerability_report,
         )
         
         rule_results = compliance_report.get("rule_results", [])
@@ -308,6 +333,9 @@ class LocalScanner:
             
             # AI detection
             "ai_components": ai_components,
+            
+            # Vulnerability scan
+            "vulnerability_report": vulnerability_report,
             
             # Secrets
             "secrets_detected": secrets_detected,
