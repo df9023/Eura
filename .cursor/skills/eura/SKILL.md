@@ -67,13 +67,13 @@ app/
 ├── core/
 │   ├── config.py             # Env vars, clients
 │   └── logger.py             # Structured logging
-├── data/rules_db.json        # Rule definitions
+├── data/rules_db.json        # 35 CRA rule definitions (BASE/SEC/VULN/DOC/LIFE)
 ├── schemas/
 │   ├── api_v1.py            # Request/response models
 │   └── scan_result_v1.py    # ScanResultV1 contract
 └── services/
     ├── scan_executor.py      # Orchestration
-    ├── rule_engine.py        # Rule evaluation
+    ├── rule_engine.py        # Rule evaluation (repo_scan_static, file_presence, dependency, content)
     ├── compliance_evaluation.py  # Verdict & scoring
     ├── ai_detector.py        # AI/ML detection
     ├── database.py           # Supabase ops
@@ -94,6 +94,9 @@ pytest tests/ -v
 # Run specific test files
 pytest tests/test_phase0_contract.py -v
 pytest tests/test_sbom.py -v
+pytest tests/test_cra_rules.py -v    # 87 tests for CRA rule expansion
+pytest tests/test_sarif.py -v        # 42 tests for SARIF 2.1.0 export
+pytest tests/test_remediation.py -v  # 54 tests for remediation templates
 
 # Local scan (CLI)
 python -m cli.eura_cli scan ./path/to/repo
@@ -138,16 +141,40 @@ Machine-readable exports for EU regulatory audits:
 | **OSV Vuln Scan** | (integrated into scans) | ✅ Done | osv.dev batch API |
 | **VEX** | `POST /api/v1/exports/vex` | 🔲 TODO | OpenVEX JSON |
 | **CSAF** | `POST /api/v1/exports/csaf` | 🔲 TODO | CSAF 2.0 JSON |
-| **SARIF** | `POST /api/v1/exports/sarif` | 🔲 TODO | SARIF 2.1.0 JSON |
+| **SARIF** | `POST /api/v1/exports/sarif` | ✅ Done | SARIF 2.1.0 JSON |
 | **Model Card** | `POST /api/v1/exports/model-card` | 🔲 TODO | JSON/Markdown |
 | **Risk Register** | `POST /api/v1/exports/risk-register` | 🔲 TODO | JSON/CSV |
 | **Technical File** | `POST /api/v1/exports/technical-file` | 🔲 TODO | Markdown/PDF |
+
+### Remediation Templates
+
+Generate ready-to-commit compliance documents:
+
+| Template | Endpoint | Filename | CRA Rules |
+|----------|----------|----------|-----------|
+| `security-md` | `POST /api/v1/remediation/generate` | SECURITY.md | CRA-BASE-001, CRA-VULN-001/002, CRA-BASE-014 |
+| `changelog-md` | `POST /api/v1/remediation/generate` | CHANGELOG.md | CRA-BASE-005/017, CRA-VULN-004, CRA-LIFE-003 |
+| `support-md` | `POST /api/v1/remediation/generate` | SUPPORT.md | CRA-LIFE-001/002, CRA-BASE-011 |
+| `contributing-md` | `POST /api/v1/remediation/generate` | CONTRIBUTING.md | CRA-VULN-003 |
+| `security-config` | `POST /api/v1/remediation/generate` | docs/security-configuration.md | CRA-DOC-001, CRA-SEC-004 |
+
+List all: `GET /api/v1/remediation/templates`
 
 **Cannot auto-generate** (requires user input):
 - Art 12 Activity Logs (runtime data)
 - Human Oversight Logs (intervention records)
 - Training Data Provenance (dataset metadata)
 - EU Declaration of Conformity (legal signature)
+
+## CRA Rule Categories (35 rules)
+
+| Category | IDs | CRA Article | Focus |
+|----------|-----|-------------|-------|
+| **BASE** (18) | CRA-BASE-001..018 | Art. 10-11 | Security policy, dependencies, secrets, CI/CD, containers, lifecycle |
+| **SEC** (5) | CRA-SEC-001..005 | Art. 10(1) | Input validation, auth, least privilege, error handling, cryptography |
+| **VULN** (4) | CRA-VULN-001..004 | Art. 11 | CVD process, security advisories, vulnerability tracking, patch SLA |
+| **DOC** (4) | CRA-DOC-001..004 | Art. 13 | User security guide, API docs, architecture/threat model, install guide |
+| **LIFE** (4) | CRA-LIFE-001..004 | Art. 12 | EOL policy, active maintenance, update notifications, migration support |
 
 ## Rule Implementation Guide
 

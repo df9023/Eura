@@ -1127,6 +1127,471 @@
         "note": "Secure communication requirements"
       },
       "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-SEC-001",
+      "title": "Input Validation and Sanitization",
+      "description_short": "Products must validate and sanitize all external inputs to prevent injection attacks.",
+      "description_long": "CRA Article 10 requires products to be designed with appropriate cybersecurity measures. Input validation is a fundamental security control that prevents injection attacks (SQL, XSS, command injection). Evidence includes validation libraries in dependencies, input sanitization configuration, or security linting rules.",
+      "regulation": "CRA",
+      "applicability": {},
+      "required_evidence": [
+        {"type": "file_presence", "source": "docs/input-validation.md", "required": false},
+        {"type": "file_presence", "source": "docs/security.md", "required": false},
+        {"type": "file_presence", "source": ".eslintrc.json", "required": false},
+        {"type": "file_presence", "source": ".eslintrc.js", "required": false},
+        {"type": "file_presence", "source": "pyproject.toml", "required": false},
+        {"type": "file_presence", "source": ".pre-commit-config.yaml", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "high", "likelihood": "high", "overall": "high"},
+      "remediation_ids": ["REM-019"],
+      "references": {
+        "article": "Article 10(1)",
+        "annex": "Annex I Part I(2)(a)",
+        "note": "Products shall ensure input validation to prevent exploitation"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-SEC-002",
+      "title": "Authentication and Identity Management",
+      "description_short": "Products with user access must implement proper authentication and identity controls.",
+      "description_long": "CRA requires access control mechanisms appropriate to the risk. Products should implement authentication (e.g., OAuth, JWT, API keys) and document how identity is managed. Evidence includes auth configuration files, identity provider setup, and auth documentation.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {"signal": "has_security_policy", "operator": "exists"},
+          {"signal": "has_cicd_config", "operator": "exists"}
+        ]
+      },
+      "required_evidence": [
+        {"type": "file_presence", "source": "docs/authentication.md", "required": false},
+        {"type": "file_presence", "source": "docs/authorization.md", "required": false},
+        {"type": "file_presence", "source": "docs/auth.md", "required": false},
+        {"type": "file_presence", "source": "config/auth.yml", "required": false},
+        {"type": "file_presence", "source": "config/auth.example.yml", "required": false},
+        {"type": "file_presence", "source": ".env.example", "required": false},
+        {"type": "file_presence", "source": "docs/identity.md", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "critical", "likelihood": "high", "overall": "critical"},
+      "remediation_ids": ["REM-020"],
+      "references": {
+        "article": "Article 10(1)",
+        "annex": "Annex I Part I(2)(d)",
+        "note": "Access control and authentication requirements"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-SEC-003",
+      "title": "Least Privilege and Minimal Attack Surface",
+      "description_short": "Products must apply least privilege principles and minimize their attack surface.",
+      "description_long": "CRA requires products to minimize attack surface. For containerized applications, this means using non-root users, minimal base images, dropping capabilities, and using .dockerignore. For all products, it means documenting permission requirements and following least-privilege principles.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {"signal": "has_dockerfile", "operator": "exists"},
+          {"signal": "has_cicd_config", "operator": "exists"}
+        ]
+      },
+      "required_evidence": [
+        {"type": "file_presence", "source": "Dockerfile", "required": false},
+        {"type": "file_presence", "source": ".dockerignore", "required": false},
+        {"type": "file_presence", "source": "docs/permissions.md", "required": false},
+        {"type": "file_presence", "source": "docs/security-hardening.md", "required": false},
+        {"type": "file_presence", "source": "docker-compose.yml", "required": false},
+        {"type": "file_presence", "source": "k8s/security-context.yaml", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "high", "likelihood": "medium", "overall": "high"},
+      "remediation_ids": ["REM-021"],
+      "references": {
+        "article": "Article 10(1)",
+        "annex": "Annex I Part I(2)(b)",
+        "note": "Minimize attack surface and apply least privilege"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-SEC-004",
+      "title": "Secure Error Handling and Logging",
+      "description_short": "Products must handle errors securely and implement appropriate logging without leaking sensitive information.",
+      "description_long": "CRA requires products to be resilient and secure in failure modes. Error messages must not expose internal details (stack traces, database queries, file paths) to end users. Security-relevant events must be logged for audit purposes. Evidence includes logging configuration, error handling policies, and debug mode settings.",
+      "regulation": "CRA",
+      "applicability": {},
+      "required_evidence": [
+        {"type": "file_presence", "source": "docs/logging.md", "required": false},
+        {"type": "file_presence", "source": "docs/error-handling.md", "required": false},
+        {"type": "file_presence", "source": "config/logging.yml", "required": false},
+        {"type": "file_presence", "source": "config/logging.json", "required": false},
+        {"type": "file_presence", "source": "logging.conf", "required": false},
+        {"type": "file_presence", "source": "log4j2.xml", "required": false},
+        {"type": "file_presence", "source": ".env.example", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "medium", "likelihood": "high", "overall": "high"},
+      "remediation_ids": ["REM-022"],
+      "references": {
+        "article": "Article 10(1)",
+        "annex": "Annex I Part I(2)(f)",
+        "note": "Secure error handling and security event logging"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-SEC-005",
+      "title": "Cryptographic Implementation Standards",
+      "description_short": "Products must use up-to-date, industry-standard cryptographic methods.",
+      "description_long": "CRA Annex I requires products to protect data using state-of-the-art cryptography. Products must use TLS 1.2+ for communication, strong encryption algorithms, proper key management, and document their cryptographic approach. Deprecated algorithms (MD5, SHA-1, DES) must not be used for security purposes.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {"signal": "has_security_policy", "operator": "exists"},
+          {"signal": "has_cicd_config", "operator": "exists"}
+        ]
+      },
+      "required_evidence": [
+        {"type": "file_presence", "source": "docs/encryption.md", "required": false},
+        {"type": "file_presence", "source": "docs/cryptography.md", "required": false},
+        {"type": "file_presence", "source": "docs/data-protection.md", "required": false},
+        {"type": "file_presence", "source": "config/ssl.example.yml", "required": false},
+        {"type": "file_presence", "source": "config/tls.yml", "required": false},
+        {"type": "file_presence", "source": "certs/README.md", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "critical", "likelihood": "medium", "overall": "critical"},
+      "remediation_ids": ["REM-023"],
+      "references": {
+        "article": "Article 10(1)",
+        "annex": "Annex I Part I(3)(c)",
+        "note": "State-of-the-art cryptographic requirements"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-VULN-001",
+      "title": "Coordinated Vulnerability Disclosure Process",
+      "description_short": "Products must have a documented coordinated vulnerability disclosure (CVD) policy.",
+      "description_long": "CRA Article 11 mandates that manufacturers establish a coordinated vulnerability disclosure policy. SECURITY.md must include: how to report vulnerabilities, expected response timeline, scope of accepted reports, safe harbour statement, and contact information. This rule verifies disclosure process completeness beyond mere file existence (CRA-BASE-001).",
+      "regulation": "CRA",
+      "applicability": {},
+      "required_evidence": [
+        {"type": "file_presence", "source": "SECURITY.md", "required": false},
+        {"type": "file_presence", "source": ".github/SECURITY.md", "required": false},
+        {"type": "file_presence", "source": "docs/vulnerability-disclosure.md", "required": false},
+        {"type": "file_presence", "source": "docs/CVD-policy.md", "required": false},
+        {"type": "file_presence", "source": "security.txt", "required": false},
+        {"type": "file_presence", "source": ".well-known/security.txt", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "high", "likelihood": "high", "overall": "high"},
+      "remediation_ids": ["REM-024"],
+      "references": {
+        "article": "Article 11(1)",
+        "note": "Coordinated vulnerability disclosure obligation"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-VULN-002",
+      "title": "Security Advisory Publication",
+      "description_short": "Manufacturers must publish security advisories for known vulnerabilities.",
+      "description_long": "CRA Article 11(2) requires timely notification of vulnerabilities to users and authorities (ENISA). Products should have a mechanism for publishing security advisories. Evidence includes GitHub security advisory templates, advisory publication workflow, or advisory documentation.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {"signal": "has_security_policy", "operator": "exists"}
+        ]
+      },
+      "required_evidence": [
+        {"type": "file_presence", "source": ".github/ISSUE_TEMPLATE/security-advisory.md", "required": false},
+        {"type": "file_presence", "source": ".github/ISSUE_TEMPLATE/security_advisory.yml", "required": false},
+        {"type": "file_presence", "source": "docs/security-advisories.md", "required": false},
+        {"type": "file_presence", "source": ".github/workflows/security-advisory.yml", "required": false},
+        {"type": "file_presence", "source": "ADVISORIES.md", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "high", "likelihood": "medium", "overall": "high"},
+      "remediation_ids": ["REM-025"],
+      "references": {
+        "article": "Article 11(2)",
+        "note": "Vulnerability notification to users and ENISA"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-VULN-003",
+      "title": "Vulnerability Tracking and Triage",
+      "description_short": "Products must have a system for tracking, triaging, and managing reported vulnerabilities.",
+      "description_long": "CRA requires manufacturers to maintain records of vulnerabilities and remediation actions. A vulnerability tracking system (issue tracker, security-specific templates) demonstrates organized handling. Evidence includes security bug report templates, vulnerability tracking documentation, or integration with CVE databases.",
+      "regulation": "CRA",
+      "applicability": {},
+      "required_evidence": [
+        {"type": "file_presence", "source": ".github/ISSUE_TEMPLATE/bug_report.md", "required": false},
+        {"type": "file_presence", "source": ".github/ISSUE_TEMPLATE/bug_report.yml", "required": false},
+        {"type": "file_presence", "source": ".github/ISSUE_TEMPLATE/security-bug.md", "required": false},
+        {"type": "file_presence", "source": ".github/ISSUE_TEMPLATE/security-bug.yml", "required": false},
+        {"type": "file_presence", "source": "docs/vulnerability-tracking.md", "required": false},
+        {"type": "file_presence", "source": ".github/ISSUE_TEMPLATE/config.yml", "required": false},
+        {"type": "file_presence", "source": "CONTRIBUTING.md", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "high", "likelihood": "medium", "overall": "high"},
+      "remediation_ids": ["REM-026"],
+      "references": {
+        "article": "Article 11(3)",
+        "note": "Vulnerability database and tracking obligations"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-VULN-004",
+      "title": "Patch Delivery Timeline Compliance",
+      "description_short": "Security patches must be delivered without undue delay, with defined SLAs.",
+      "description_long": "CRA Article 11(4) requires manufacturers to address vulnerabilities without undue delay and provide patches free of charge. Products should document patch delivery timelines, have release automation for rapid deployment, and demonstrate evidence of timely patch history. SLAs: critical within 24-72 hours, high within 7 days.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {"signal": "has_changelog", "operator": "exists"},
+          {"signal": "has_cicd_config", "operator": "exists"}
+        ]
+      },
+      "required_evidence": [
+        {"type": "file_presence", "source": ".github/workflows/release.yml", "required": false},
+        {"type": "file_presence", "source": ".github/workflows/publish.yml", "required": false},
+        {"type": "file_presence", "source": "docs/patch-policy.md", "required": false},
+        {"type": "file_presence", "source": "docs/release-process.md", "required": false},
+        {"type": "file_presence", "source": "CHANGELOG.md", "required": false},
+        {"type": "file_presence", "source": ".releaserc.json", "required": false},
+        {"type": "file_presence", "source": ".releaserc.yml", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "critical", "likelihood": "high", "overall": "critical"},
+      "remediation_ids": ["REM-027"],
+      "references": {
+        "article": "Article 11(4)",
+        "note": "Timely patch delivery without undue delay"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-DOC-001",
+      "title": "User Security Configuration Guide",
+      "description_short": "Products must provide a security configuration guide for end users.",
+      "description_long": "CRA Article 13 requires products to be accompanied by clear documentation enabling users to securely configure and use the product. This includes a security hardening guide, default credential changes, network exposure minimization, and feature-specific security settings.",
+      "regulation": "CRA",
+      "applicability": {},
+      "required_evidence": [
+        {"type": "file_presence", "source": "docs/security-configuration.md", "required": false},
+        {"type": "file_presence", "source": "docs/hardening-guide.md", "required": false},
+        {"type": "file_presence", "source": "docs/security.md", "required": false},
+        {"type": "file_presence", "source": "docs/user-guide.md", "required": false},
+        {"type": "file_presence", "source": "docs/configuration.md", "required": false},
+        {"type": "file_presence", "source": "README.md", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "high", "likelihood": "medium", "overall": "high"},
+      "remediation_ids": ["REM-028"],
+      "references": {
+        "article": "Article 13(1)",
+        "note": "User-facing security documentation"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-DOC-002",
+      "title": "API Security Documentation",
+      "description_short": "Products with APIs must document their interfaces including security considerations.",
+      "description_long": "CRA Article 13(6) requires documentation of product interfaces. APIs must be documented with security considerations including authentication requirements, rate limiting, input constraints, and error responses. Evidence includes OpenAPI specifications, API documentation, or interface security guides.",
+      "regulation": "CRA",
+      "applicability": {},
+      "required_evidence": [
+        {"type": "file_presence", "source": "openapi.json", "required": false},
+        {"type": "file_presence", "source": "openapi.yaml", "required": false},
+        {"type": "file_presence", "source": "openapi.yml", "required": false},
+        {"type": "file_presence", "source": "swagger.json", "required": false},
+        {"type": "file_presence", "source": "swagger.yaml", "required": false},
+        {"type": "file_presence", "source": "docs/api.md", "required": false},
+        {"type": "file_presence", "source": "docs/api-reference.md", "required": false},
+        {"type": "file_presence", "source": "docs/api-security.md", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "medium", "likelihood": "medium", "overall": "medium"},
+      "remediation_ids": ["REM-029"],
+      "references": {
+        "article": "Article 13(6)",
+        "note": "Interface and API documentation requirements"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-DOC-003",
+      "title": "Architecture and Threat Model Documentation",
+      "description_short": "Products must document their security architecture and threat model.",
+      "description_long": "CRA Article 13(2) requires technical documentation that includes a general description of the product design. A security architecture document and threat model demonstrate security-by-design. Evidence includes architecture diagrams, threat analysis, data flow documentation, and security design documents.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {"signal": "has_security_policy", "operator": "exists"}
+        ]
+      },
+      "required_evidence": [
+        {"type": "file_presence", "source": "docs/architecture.md", "required": false},
+        {"type": "file_presence", "source": "docs/threat-model.md", "required": false},
+        {"type": "file_presence", "source": "docs/security-architecture.md", "required": false},
+        {"type": "file_presence", "source": "docs/design.md", "required": false},
+        {"type": "file_presence", "source": "docs/data-flow.md", "required": false},
+        {"type": "file_presence", "source": "ARCHITECTURE.md", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "high", "likelihood": "medium", "overall": "high"},
+      "remediation_ids": ["REM-030"],
+      "references": {
+        "article": "Article 13(2)",
+        "note": "Product design and security architecture documentation"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-DOC-004",
+      "title": "Secure Installation and Deployment Guide",
+      "description_short": "Products must include secure installation and deployment instructions.",
+      "description_long": "CRA Article 13(3) requires instructions for secure installation and deployment. Users must be able to install, configure, and operate the product securely from initial setup. Evidence includes installation guides with security steps, deployment checklists, and infrastructure-as-code with security configurations.",
+      "regulation": "CRA",
+      "applicability": {},
+      "required_evidence": [
+        {"type": "file_presence", "source": "docs/installation.md", "required": false},
+        {"type": "file_presence", "source": "docs/deployment.md", "required": false},
+        {"type": "file_presence", "source": "docs/getting-started.md", "required": false},
+        {"type": "file_presence", "source": "docs/setup.md", "required": false},
+        {"type": "file_presence", "source": "INSTALL.md", "required": false},
+        {"type": "file_presence", "source": "docker-compose.yml", "required": false},
+        {"type": "file_presence", "source": "README.md", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "medium", "likelihood": "medium", "overall": "medium"},
+      "remediation_ids": ["REM-031"],
+      "references": {
+        "article": "Article 13(3)",
+        "note": "Secure installation and operational documentation"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-LIFE-001",
+      "title": "End-of-Life and Support Policy",
+      "description_short": "Products must have a documented support period and end-of-life policy.",
+      "description_long": "CRA Article 12(1) requires manufacturers to determine and document the expected product lifetime and support period. Users must know how long they can expect security updates. Evidence includes support policy documentation, EOL timeline, and maintenance commitment statements.",
+      "regulation": "CRA",
+      "applicability": {},
+      "required_evidence": [
+        {"type": "file_presence", "source": "docs/support-policy.md", "required": false},
+        {"type": "file_presence", "source": "docs/lifecycle.md", "required": false},
+        {"type": "file_presence", "source": "docs/eol-policy.md", "required": false},
+        {"type": "file_presence", "source": "SUPPORT.md", "required": false},
+        {"type": "file_presence", "source": ".github/SUPPORT.md", "required": false},
+        {"type": "file_presence", "source": "docs/maintenance.md", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "high", "likelihood": "medium", "overall": "high"},
+      "remediation_ids": ["REM-032"],
+      "references": {
+        "article": "Article 12(1)",
+        "note": "Product support period and EOL policy"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-LIFE-002",
+      "title": "Active Maintenance Evidence",
+      "description_short": "Products must demonstrate active maintenance through regular updates and activity.",
+      "description_long": "CRA Article 12(2) requires manufacturers to maintain products throughout the support period. Evidence of active maintenance includes recent commits, regular dependency updates, resolved issues, and maintenance status indicators. Repositories with no updates for 180+ days may indicate abandonment.",
+      "regulation": "CRA",
+      "applicability": {},
+      "required_evidence": [
+        {"type": "file_presence", "source": "CHANGELOG.md", "required": false},
+        {"type": "file_presence", "source": ".github/dependabot.yml", "required": false},
+        {"type": "file_presence", "source": ".github/renovate.json", "required": false},
+        {"type": "file_presence", "source": "renovate.json", "required": false},
+        {"type": "file_presence", "source": ".github/workflows/ci.yml", "required": false},
+        {"type": "file_presence", "source": "README.md", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "high", "likelihood": "high", "overall": "high"},
+      "remediation_ids": ["REM-033"],
+      "references": {
+        "article": "Article 12(2)",
+        "note": "Ongoing maintenance obligations"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-LIFE-003",
+      "title": "Update Notification and Distribution",
+      "description_short": "Products must have mechanisms to notify users of security updates and distribute patches.",
+      "description_long": "CRA Article 12(3) requires manufacturers to inform users about security updates and provide automatic update mechanisms where possible. Evidence includes release automation workflows, notification systems, update documentation, and subscription mechanisms (RSS, mailing list, GitHub releases).",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {"signal": "has_cicd_config", "operator": "exists"},
+          {"signal": "has_changelog", "operator": "exists"}
+        ]
+      },
+      "required_evidence": [
+        {"type": "file_presence", "source": ".github/workflows/release.yml", "required": false},
+        {"type": "file_presence", "source": ".github/workflows/publish.yml", "required": false},
+        {"type": "file_presence", "source": "docs/updates.md", "required": false},
+        {"type": "file_presence", "source": "docs/release-process.md", "required": false},
+        {"type": "file_presence", "source": "CHANGELOG.md", "required": false},
+        {"type": "file_presence", "source": ".github/release.yml", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "high", "likelihood": "medium", "overall": "high"},
+      "remediation_ids": ["REM-034"],
+      "references": {
+        "article": "Article 12(3)",
+        "note": "Update notification and distribution mechanisms"
+      },
+      "version": "0.1"
+    },
+    {
+      "rule_id": "CRA-LIFE-004",
+      "title": "Backward Compatibility and Migration Support",
+      "description_short": "Products must provide migration guidance and manage backward compatibility during updates.",
+      "description_long": "CRA Article 12(4) requires that updates do not negatively impact the security of the product. When breaking changes are necessary, migration guides, deprecation notices, and upgrade paths must be documented to ensure users can transition securely. Evidence includes migration documentation, deprecation policies, and version upgrade guides.",
+      "regulation": "CRA",
+      "applicability": {
+        "operator": "OR",
+        "conditions": [
+          {"signal": "has_changelog", "operator": "exists"}
+        ]
+      },
+      "required_evidence": [
+        {"type": "file_presence", "source": "docs/migration.md", "required": false},
+        {"type": "file_presence", "source": "docs/upgrade.md", "required": false},
+        {"type": "file_presence", "source": "docs/breaking-changes.md", "required": false},
+        {"type": "file_presence", "source": "MIGRATION.md", "required": false},
+        {"type": "file_presence", "source": "UPGRADE.md", "required": false},
+        {"type": "file_presence", "source": "docs/deprecation-policy.md", "required": false},
+        {"type": "file_presence", "source": "CHANGELOG.md", "required": false}
+      ],
+      "check_method": "repo_scan_static",
+      "severity": {"impact": "medium", "likelihood": "medium", "overall": "medium"},
+      "remediation_ids": ["REM-035"],
+      "references": {
+        "article": "Article 12(4)",
+        "note": "Secure update transition and backward compatibility"
+      },
+      "version": "0.1"
     }
   ],
   "remediation_catalog": {
@@ -1219,11 +1684,96 @@
       "remediation_id": "REM-018",
       "action": "Document Secure Communication Requirements",
       "description": "Document Secure Communication Requirements\n- Action: Document TLS/HTTPS requirements\n- Content: TLS version requirements, certificate management\n- Verification: Secure communication documented\n- Timeline: 1 day"
+    },
+    "REM-019": {
+      "remediation_id": "REM-019",
+      "action": "Implement Input Validation",
+      "description": "Implement Input Validation\n- Action: Add input validation and sanitization for all external inputs\n- Steps: Use validation libraries (Joi, Cerberus, Pydantic), add schema validation for APIs, sanitize HTML/SQL inputs\n- Tools: OWASP Input Validation Cheat Sheet, ESLint security plugins\n- Verification: All API endpoints validate input; no raw user input reaches queries\n- Timeline: 2-5 days"
+    },
+    "REM-020": {
+      "remediation_id": "REM-020",
+      "action": "Implement Authentication Controls",
+      "description": "Implement Authentication Controls\n- Action: Add authentication and identity management\n- Steps: Implement OAuth2/JWT/session-based auth, document auth flow, add MFA support\n- Tools: Passport.js, python-jose, Auth0, Keycloak\n- Verification: All protected endpoints require authentication; auth flow documented\n- Timeline: 3-7 days"
+    },
+    "REM-021": {
+      "remediation_id": "REM-021",
+      "action": "Apply Least Privilege Principle",
+      "description": "Apply Least Privilege Principle\n- Action: Review and minimize permissions throughout the product\n- Steps: Add USER directive to Dockerfiles, drop unnecessary Linux capabilities, use minimal base images, add .dockerignore\n- Verification: Containers run as non-root; documented permission requirements\n- Timeline: 1-2 days"
+    },
+    "REM-022": {
+      "remediation_id": "REM-022",
+      "action": "Implement Secure Error Handling",
+      "description": "Implement Secure Error Handling\n- Action: Add structured logging and secure error handling\n- Steps: Replace generic exceptions with specific handlers, mask sensitive data in logs, disable debug mode in production, configure structured logging\n- Tools: structlog, Winston, Serilog, log4j2\n- Verification: No stack traces in production responses; sensitive data masked in logs\n- Timeline: 2-3 days"
+    },
+    "REM-023": {
+      "remediation_id": "REM-023",
+      "action": "Configure Cryptographic Standards",
+      "description": "Configure Cryptographic Standards\n- Action: Audit and update cryptographic implementation\n- Steps: Require TLS 1.2+, disable weak cipher suites, use AES-256 for encryption at rest, document key management\n- Tools: SSLyze, testssl.sh, Mozilla SSL Configuration Generator\n- Verification: No deprecated algorithms; TLS properly configured; key management documented\n- Timeline: 2-3 days"
+    },
+    "REM-024": {
+      "remediation_id": "REM-024",
+      "action": "Establish Vulnerability Disclosure Process",
+      "description": "Establish Vulnerability Disclosure Process\n- Action: Create comprehensive SECURITY.md with CVD policy\n- Content: How to report (email, form), response timeline (acknowledge in 48h, fix SLA), scope, safe harbour statement, PGP key\n- Standards: ISO 29147 (Vulnerability Disclosure), RFC 9116 (security.txt)\n- Verification: SECURITY.md exists with complete CVD process\n- Timeline: 1 day"
+    },
+    "REM-025": {
+      "remediation_id": "REM-025",
+      "action": "Set Up Security Advisory Publication",
+      "description": "Set Up Security Advisory Publication\n- Action: Create security advisory workflow\n- Steps: Enable GitHub Security Advisories, create advisory template, set up notification workflow\n- Content: CVE ID, affected versions, severity, mitigation steps, patched version\n- Verification: Advisory template exists; process documented\n- Timeline: 1 day"
+    },
+    "REM-026": {
+      "remediation_id": "REM-026",
+      "action": "Implement Vulnerability Tracking",
+      "description": "Implement Vulnerability Tracking\n- Action: Set up vulnerability tracking system\n- Steps: Create security-specific issue templates, define triage process, establish severity classification (CVSS)\n- Tools: GitHub Issues, Jira Security, dedicated vulnerability tracker\n- Verification: Security issue template exists; triage process documented\n- Timeline: 1-2 days"
+    },
+    "REM-027": {
+      "remediation_id": "REM-027",
+      "action": "Define Patch Delivery SLA",
+      "description": "Define Patch Delivery SLA\n- Action: Document and automate patch delivery timelines\n- SLAs: Critical 24-72 hours, High 7 days, Medium 30 days, Low next release\n- Steps: Create release automation, document release process, add deployment pipeline\n- Verification: Release workflow exists; SLA documented; recent patches meet SLA\n- Timeline: 2-3 days"
+    },
+    "REM-028": {
+      "remediation_id": "REM-028",
+      "action": "Create User Security Guide",
+      "description": "Create User Security Guide\n- Action: Write user-facing security configuration documentation\n- Content: Secure configuration checklist, credential management, network settings, feature-specific security, hardening steps\n- Verification: Security guide exists and covers key configuration areas\n- Timeline: 1-2 days"
+    },
+    "REM-029": {
+      "remediation_id": "REM-029",
+      "action": "Document API Security",
+      "description": "Document API Security\n- Action: Create API documentation with security considerations\n- Steps: Generate OpenAPI spec, document auth requirements per endpoint, rate limits, input constraints\n- Tools: Swagger/OpenAPI, Redoc, Stoplight\n- Verification: OpenAPI spec exists; security schemes documented\n- Timeline: 2-3 days"
+    },
+    "REM-030": {
+      "remediation_id": "REM-030",
+      "action": "Create Architecture Documentation",
+      "description": "Create Architecture Documentation\n- Action: Document security architecture and threat model\n- Content: Component diagram, data flow, trust boundaries, threat analysis (STRIDE), mitigation strategies\n- Tools: draw.io, Mermaid, Microsoft Threat Modeling Tool\n- Verification: Architecture document and threat model exist\n- Timeline: 2-5 days"
+    },
+    "REM-031": {
+      "remediation_id": "REM-031",
+      "action": "Create Installation Security Guide",
+      "description": "Create Installation Security Guide\n- Action: Write secure installation and deployment instructions\n- Content: Prerequisites, step-by-step install, security configuration, environment variables, firewall rules, TLS setup\n- Verification: Installation guide with security steps exists\n- Timeline: 1-2 days"
+    },
+    "REM-032": {
+      "remediation_id": "REM-032",
+      "action": "Define End-of-Life Policy",
+      "description": "Define End-of-Life Policy\n- Action: Document product support period and EOL policy\n- Content: Support duration (minimum 5 years per CRA), maintenance schedule, EOL notification process, migration path at EOL\n- Verification: Support policy document exists with clear timelines\n- Timeline: 1 day"
+    },
+    "REM-033": {
+      "remediation_id": "REM-033",
+      "action": "Demonstrate Active Maintenance",
+      "description": "Demonstrate Active Maintenance\n- Action: Establish and show ongoing maintenance\n- Steps: Enable Dependabot/Renovate, maintain regular commit cadence, update dependencies, respond to issues\n- Verification: Recent commits within 90 days; automated dependency updates enabled\n- Timeline: 1 day for initial setup, ongoing"
+    },
+    "REM-034": {
+      "remediation_id": "REM-034",
+      "action": "Set Up Update Notifications",
+      "description": "Set Up Update Notifications\n- Action: Create update notification and distribution mechanism\n- Steps: Enable GitHub Releases, create release workflow, add changelog automation, consider mailing list or RSS\n- Tools: semantic-release, release-drafter, GitHub Actions\n- Verification: Release workflow automated; users can subscribe to updates\n- Timeline: 1-2 days"
+    },
+    "REM-035": {
+      "remediation_id": "REM-035",
+      "action": "Create Migration Guide",
+      "description": "Create Migration Guide\n- Action: Document version migration paths and backward compatibility policy\n- Content: Breaking change policy, migration steps between major versions, deprecation notices with timeline, automated migration scripts\n- Verification: Migration guide exists for recent major versions\n- Timeline: 1-2 days per major version"
     }
   },
   "metadata": {
     "source_file": "eura_knowledge/cra_rule_pack_v0.1.txt",
-    "rule_count": 18,
-    "remediation_count": 18
+    "rule_count": 35,
+    "remediation_count": 35
   }
 }

@@ -69,7 +69,7 @@ class RuleModule:
             )
         
         # Route to specific evaluator based on evaluation_method
-        if self.evaluation_method == "file_presence":
+        if self.evaluation_method in ("file_presence", "repo_scan_static"):
             return self._evaluate_file_presence(evidence)
         elif self.evaluation_method == "dependency_analysis":
             return self._evaluate_dependency(evidence)

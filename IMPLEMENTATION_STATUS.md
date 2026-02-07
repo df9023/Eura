@@ -1,6 +1,6 @@
 # EURA 2.0 Implementation Status Summary
 
-**Last Updated:** February 7, 2026  
+**Last Updated:** February 7, 2026 (evening)  
 **Workspace:** Git worktree at `C:\Users\danie\.cursor\worktrees\Eura\wpn`
 
 ---
@@ -17,7 +17,7 @@ What Eura 2.0 can do today:
 | 4 | **Secret detection** | Scans file content for API keys, passwords, tokens; confidence scoring; high-confidence findings surface in scan results. |
 | 5 | **AI/ML detection** | Detects AI frameworks (TensorFlow, PyTorch, scikit-learn, etc.), model files (.h5, .pkl, .onnx, .pb, .pt), training/inference patterns. Feeds AI Act rules. |
 | 6 | **LLM-based code analysis** | Optional OpenAI-backed analysis for security/best-practice advisories (non-blocking). |
-| 7 | **CRA rule engine** | 18 CRA-BASE rules from `rules_db.json`; file presence, dependency, and documentation checks; parallel evaluation; evidence-based results. |
+| 7 | **CRA rule engine** | 35 CRA rules across 5 categories (BASE, SEC, VULN, DOC, LIFE) from `rules_db.json`; file presence, dependency, content analysis, and documentation checks; parallel evaluation; evidence-based results. |
 | 8 | **AI Act rule engine** | AI system classification (prohibited/high-risk/limited/minimal), high-risk documentation checks; integrated with rule engine. |
 | 9 | **Compliance verdict & scoring** | SHIP_ALLOWED / SHIP_BLOCKED from rule results; environment-aware (production/eu-production: HIGH blocks; dev/staging: only CRITICAL blocks). Severity-weighted score 0–100 per regulation (CRA, AI_ACT). |
 | 10 | **Database persistence** | Full schema (12 tables) and data access layer for scans, projects, repositories, rule results, compliance reports, findings, dependencies, AI systems, model cards. Ready for Supabase via `QUICK_START_DATABASE.sql`. |
@@ -25,7 +25,11 @@ What Eura 2.0 can do today:
 | 12 | **SBOM generation** | SPDX 2.3 and CycloneDX 1.5 JSON from a dependency list. `POST /api/v1/sbom/generate` (no GitHub/DB required). Supports CRA-SBOM-004. |
 | 13 | **Compliance badges** | SVG badge endpoints: `GET /api/v1/badges/{project_id}`, `.../scan/{scan_id}`, `.../repo/{owner}/{repo}`. Badge types: verdict, score, compliance. Styles: flat, flat-square. |
 | 14 | **OSV vulnerability scanning** | Queries osv.dev batch API for known CVEs in dependencies. Supports PyPI, npm, Go, crates.io, RubyGems, Maven, NuGet, Packagist. CRA-BASE-003 now evaluates real vulnerability data. |
-| 15 | **Tests** | Phase 0 contract tests; SBOM (7), badge (45), OSV (49) tests. 101 tests total. |
+| 15 | **Expanded CRA rules** | 35 CRA rules: 18 BASE + 5 SEC (security-by-design) + 4 VULN (vulnerability handling) + 4 DOC (documentation) + 4 LIFE (lifecycle). Covers CRA Articles 10-13. |
+| 16 | **SARIF export** | SARIF 2.1.0 JSON from rule results, security findings, and OSV vulnerabilities. `POST /api/v1/exports/sarif`. Compatible with GitHub Code Scanning and VS Code SARIF Viewer. |
+| 17 | **OpenAPI/Swagger UI** | Interactive API docs at `/docs` (Swagger UI) and `/redoc` (ReDoc). Auto-generated from FastAPI route definitions. |
+| 18 | **Remediation templates** | 5 template generators: SECURITY.md, CHANGELOG.md, SUPPORT.md, CONTRIBUTING.md, security-config. `GET /api/v1/remediation/templates`, `POST /api/v1/remediation/generate`. Addresses 12 CRA rules. |
+| 19 | **Tests** | Phase 0 contract tests; SBOM (7), badge (45), OSV (49), CRA rules (87), SARIF (42), remediation (54) tests. 284 tests total. |
 
 ---
 
@@ -40,7 +44,7 @@ EURA must generate machine-readable artifacts for EU regulatory audits (see PRD 
 | **SBOM** | CycloneDX/SPDX JSON | ✅ Implemented | `POST /api/v1/sbom/generate` |
 | **VEX Reports** | OpenVEX JSON | 🔲 Not Started | `POST /api/v1/exports/vex` |
 | **CSAF Advisories** | CSAF 2.0 JSON | 🔲 Not Started | `POST /api/v1/exports/csaf` |
-| **SARIF Reports** | SARIF 2.1.0 JSON | 🔲 Not Started | `POST /api/v1/exports/sarif` |
+| **SARIF Reports** | SARIF 2.1.0 JSON | ✅ Implemented | `POST /api/v1/exports/sarif` |
 
 ### AI Act Artifacts
 
@@ -83,7 +87,7 @@ EURA must generate machine-readable artifacts for EU regulatory audits (see PRD 
 | Gap | Regulation | Impact | Priority |
 |-----|------------|--------|----------|
 | ~~**No vulnerability DB**~~ ~~(OSV/Snyk)~~ | ~~CRA Art. 10~~ | ~~Can't check for known CVEs~~ | ✅ DONE |
-| **Only 18 CRA rules** (need 50+) | CRA | Incomplete coverage | HIGH |
+| ~~**Only 18 CRA rules** (need 50+)~~ | ~~CRA~~ | ~~Incomplete coverage~~ | ✅ 35 rules |
 | **No license compliance** | CRA Art. 10 | Can't verify SBOM licenses | MEDIUM |
 | **No transitive deps** | CRA Art. 10 | Misses indirect vulnerabilities | MEDIUM |
 | **Limited AI Act rules** | AI Act | Only classification + HR docs | MEDIUM |
@@ -94,7 +98,7 @@ EURA must generate machine-readable artifacts for EU regulatory audits (see PRD 
 | Feature | Why It Matters | Priority |
 |---------|----------------|----------|
 | ~~**Compliance badges**~~ | ~~README badges like "CRA Compliant"~~ | ✅ DONE |
-| **Remediation templates** | Auto-generate SECURITY.md, model cards | HIGH |
+| ~~**Remediation templates**~~ | ~~Auto-generate SECURITY.md, model cards~~ | ✅ DONE |
 | **Historical trends** | Track score over time per repo | MEDIUM |
 | **Multi-repo dashboard** | Org-wide compliance view | MEDIUM |
 | **Custom rules** | Let users define their own checks | LOW (Phase 4) |
@@ -129,20 +133,35 @@ EURA must generate machine-readable artifacts for EU regulatory audits (see PRD 
    - Supports: PyPI, npm, Go, crates.io, RubyGems, Maven, NuGet, Packagist
    - See `tests/test_osv.py` (49 tests)
 
+5. ~~**Expand CRA Rules to 35**~~ ✅ DONE  
+   Added 17 new rules across 4 new categories, now at 35 total:
+   - **CRA-SEC-001..005** — Security by Design (Article 10): input validation, authentication, least privilege, error handling, cryptography
+   - **CRA-VULN-001..004** — Vulnerability Handling (Article 11): CVD process, security advisories, vulnerability tracking, patch delivery SLA
+   - **CRA-DOC-001..004** — Technical Documentation (Article 13): user security guide, API docs, architecture/threat model, installation guide
+   - **CRA-LIFE-001..004** — Lifecycle Management (Article 12): EOL policy, active maintenance, update notifications, migration support
+   - Fixed `repo_scan_static` routing (now properly evaluates existing CRA-BASE-004..018)
+   - 35 remediations in catalog (REM-001..035)
+   - See `tests/test_cra_rules.py` (87 tests)
+
 ### Immediate (This Sprint)
 
-5. **Expand CRA Rules to 30+**  
-   Add: CRA-SEC-* (5), CRA-VULN-* (4), CRA-DOC-* (4), CRA-LIFE-* (4)
-   - Total: 35+ rules
-   - Covers most CRA articles
+6. ~~**Remediation Template Generator**~~ ✅ DONE  
+   `POST /api/v1/remediation/generate` + `GET /api/v1/remediation/templates`.
+   - 5 templates: SECURITY.md, CHANGELOG.md, SUPPORT.md, CONTRIBUTING.md, security-config
+   - Addresses 12 CRA rules across all categories
+   - Parameterized by project name, contact, support years, etc.
+   - See `app/services/remediation_templates.py` and `tests/test_remediation.py` (54 tests)
 
-6. **Remediation Template Generator** ⭐ NEW  
-   `POST /api/v1/generate/security-md` returns a starter SECURITY.md.
-   - Same for MODEL_CARD.md, CHANGELOG.md
-   - Reduces friction for compliance
+7. ~~**OpenAPI/Swagger UI**~~ ✅ DONE  
+   Swagger UI at `/docs`, ReDoc at `/redoc`. EURA-branded metadata, version 2.0.0.
 
-7. **OpenAPI/Swagger UI**  
-   Auto-generate and host at `/docs` (FastAPI built-in, just enable).
+8. ~~**SARIF Export**~~ ✅ DONE  
+   SARIF 2.1.0 JSON reports from rule results, security findings, and OSV vulnerabilities.
+   - `POST /api/v1/exports/sarif` — accepts rule_results, findings, vulnerability_report
+   - Maps CRA rules to SARIF `reportingDescriptor` with severity levels
+   - Security findings include file locations (line numbers, snippets)
+   - Compatible with GitHub Code Scanning and VS Code SARIF Viewer
+   - See `app/services/sarif.py` and `tests/test_sarif.py` (42 tests)
 
 ### Medium-term (Phase 2-3)
 

@@ -16,9 +16,18 @@ from app.schemas.api_v1 import (
     RuleResponseV1, RuleListResponseV1,
     ComplianceReportResponseV1, ComplianceReportListResponseV1, ReportGenerateRequestV1,
     SbomGenerateRequestV1,
+    SarifExportRequestV1,
+    RemediationTemplateRequestV1, RemediationTemplateResponseV1,
 )
 from app.services.database import get_db_client
 from app.services.sbom import generate_sbom
+from app.services.sarif import generate_sarif
+from app.services.remediation_templates import (
+    TEMPLATE_GENERATORS,
+    TEMPLATE_FILENAMES,
+    TEMPLATE_RULES_MAP,
+    list_available_templates,
+)
 from app.services.badge import (
     generate_verdict_badge,
     generate_score_badge,
@@ -856,6 +865,106 @@ async def generate_sbom_v1(request: SbomGenerateRequestV1):
         commit_sha=request.commit_sha,
     )
     return sbom
+
+
+# ============================================================================
+# SARIF Export Endpoint (local-only; no GitHub/DB required)
+# ============================================================================
+
+@router.post("/v1/exports/sarif")
+async def export_sarif_v1(request: SarifExportRequestV1):
+    """
+    Generate a SARIF 2.1.0 JSON report from EURA scan data.
+
+    Accepts rule evaluation results, optional security findings, and optional
+    vulnerability report. Returns a standards-compliant SARIF document suitable
+    for GitHub Code Scanning, VS Code SARIF Viewer, and other SARIF tools.
+
+    No external services (GitHub, database) required.
+    """
+    # Convert Pydantic models to dicts
+    rule_results = [rr.model_dump() for rr in request.rule_results]
+
+    findings = None
+    if request.findings:
+        findings = [f.model_dump() for f in request.findings]
+
+    vuln_report = None
+    if request.vulnerability_report:
+        vuln_report = request.vulnerability_report.model_dump()
+
+    sarif = generate_sarif(
+        rule_results=rule_results,
+        findings=findings,
+        vulnerability_report=vuln_report,
+        repo_name=request.repo_name,
+        commit_sha=request.commit_sha,
+        scan_id=request.scan_id,
+    )
+
+    return sarif
+
+
+# ============================================================================
+# Remediation Template Endpoints
+# ============================================================================
+
+@router.get("/v1/remediation/templates")
+async def list_remediation_templates():
+    """
+    List all available remediation templates with metadata.
+
+    Returns template IDs, target filenames, and which CRA rules each template
+    helps satisfy.
+    """
+    return {"templates": list_available_templates(), "total": len(TEMPLATE_GENERATORS)}
+
+
+@router.post("/v1/remediation/generate")
+async def generate_remediation_template(request: RemediationTemplateRequestV1):
+    """
+    Generate a remediation compliance document from a template.
+
+    Returns Markdown content ready to commit to a repository.
+    Supports: SECURITY.md, CHANGELOG.md, SUPPORT.md, CONTRIBUTING.md,
+    and security configuration guides.
+    """
+    template_id = request.template_id
+    generator = TEMPLATE_GENERATORS.get(template_id)
+
+    if not generator:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown template_id: {template_id}. "
+                   f"Valid: {list(TEMPLATE_GENERATORS.keys())}",
+        )
+
+    # Build kwargs based on template type
+    kwargs = {"project_name": request.project_name}
+
+    if template_id == "security-md":
+        kwargs.update({
+            "contact_email": request.contact_email,
+            "pgp_key_url": request.pgp_key_url,
+            "response_hours": request.response_hours,
+            "disclosure_days": request.disclosure_days,
+        })
+    elif template_id == "changelog-md":
+        kwargs["initial_version"] = request.initial_version
+    elif template_id == "support-md":
+        kwargs.update({
+            "support_email": request.contact_email,
+            "support_years": request.support_years,
+        })
+
+    content = generator(**kwargs)
+
+    return RemediationTemplateResponseV1(
+        template_id=template_id,
+        filename=TEMPLATE_FILENAMES[template_id],
+        content=content,
+        addresses_rules=TEMPLATE_RULES_MAP.get(template_id, []),
+    )
 
 
 # ============================================================================

@@ -1,7 +1,7 @@
 ---
 name: rule-validator
+model: claude-4.6-opus-high-thinking
 description: Validates EURA compliance rule implementations. Use when creating or modifying rules in rule_engine.py, ai_act_rules.py, or rules_db.json. Checks for determinism, evidence requirements, and correct status values.
-model: fast
 ---
 
 You are a compliance rule validator for EURA. Your job is to ensure rule implementations follow the "Code is Truth" philosophy.

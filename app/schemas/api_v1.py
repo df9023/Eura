@@ -187,6 +187,120 @@ class SbomGenerateRequestV1(BaseModel):
 
 
 # ============================================================================
+# SARIF Export Schemas
+# ============================================================================
+
+class SarifRuleResultItem(BaseModel):
+    """A single rule evaluation result for SARIF export."""
+    rule_id: str = Field(..., description="Rule identifier (e.g. CRA-BASE-001)")
+    status: Literal["PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE"] = Field(
+        ..., description="Evaluation status"
+    )
+    reason: str = Field(default="", description="Human-readable explanation")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence score")
+    evidence: Dict[str, Any] = Field(default_factory=dict, description="Supporting evidence")
+
+
+class SarifFindingItem(BaseModel):
+    """A security finding for SARIF export (secret detection, code analysis)."""
+    id: str = Field(default="", description="Finding identifier")
+    title: str = Field(..., description="Finding title")
+    severity: Literal["high", "medium", "low", "info"] = Field(
+        default="medium", description="Severity level"
+    )
+    summary: str = Field(default="", description="Brief summary")
+    details: str = Field(default="", description="Full details")
+    category: str = Field(default="security", description="Category (secrets, auth, crypto, config)")
+    evidence: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Evidence entries with file, lines, snippet"
+    )
+
+
+class SarifVulnerabilityItem(BaseModel):
+    """A single vulnerability for SARIF export."""
+    vuln_id: str = Field(..., description="Vulnerability ID (e.g. GHSA-xxxx or CVE-xxxx)")
+    summary: str = Field(default="", description="Vulnerability summary")
+    severity: str = Field(default="UNKNOWN", description="Severity (CRITICAL, HIGH, MEDIUM, LOW)")
+    affected_package: str = Field(default="", description="Affected package name")
+    affected_version: str = Field(default="", description="Affected version")
+    fixed_version: str = Field(default="", description="Version that fixes the vulnerability")
+    references: List[str] = Field(default_factory=list, description="Reference URLs")
+
+
+class SarifVulnerabilityReport(BaseModel):
+    """Vulnerability report for SARIF export."""
+    vulnerability_count: int = Field(default=0, description="Total vulnerabilities found")
+    vulnerable_count: int = Field(default=0, description="Number of vulnerable packages")
+    total_dependencies: int = Field(default=0, description="Total dependencies scanned")
+    critical_count: int = Field(default=0)
+    high_count: int = Field(default=0)
+    medium_count: int = Field(default=0)
+    low_count: int = Field(default=0)
+    vulnerabilities: List[SarifVulnerabilityItem] = Field(
+        default_factory=list, description="List of vulnerabilities"
+    )
+
+
+class SarifExportRequestV1(BaseModel):
+    """Request to generate a SARIF 2.1.0 report from scan data.
+
+    Provide rule_results at minimum. Optionally include findings and
+    vulnerability_report for a comprehensive SARIF document.
+    """
+    rule_results: List[SarifRuleResultItem] = Field(
+        ..., description="Rule evaluation results from EURA scan"
+    )
+    findings: List[SarifFindingItem] = Field(
+        default_factory=list, description="Security findings (optional)"
+    )
+    vulnerability_report: Optional[SarifVulnerabilityReport] = Field(
+        None, description="OSV vulnerability report (optional)"
+    )
+    repo_name: Optional[str] = Field(None, description="Repository identifier (e.g. owner/repo)")
+    commit_sha: Optional[str] = Field(None, description="Git commit hash")
+    scan_id: Optional[str] = Field(None, description="EURA scan UUID")
+
+
+# ============================================================================
+# Remediation Template Schemas
+# ============================================================================
+
+class RemediationTemplateRequestV1(BaseModel):
+    """Request to generate a remediation compliance document."""
+    template_id: Literal[
+        "security-md", "changelog-md", "support-md",
+        "contributing-md", "security-config"
+    ] = Field(..., description="Template identifier")
+    project_name: str = Field(default="My Project", description="Project name for the template")
+    contact_email: str = Field(default="security@example.com", description="Security/support contact email")
+    # SECURITY.md specific
+    pgp_key_url: Optional[str] = Field(None, description="URL to PGP public key (SECURITY.md)")
+    response_hours: int = Field(default=48, ge=1, description="Hours to acknowledge report (SECURITY.md)")
+    disclosure_days: int = Field(default=90, ge=1, description="Days before coordinated disclosure (SECURITY.md)")
+    # CHANGELOG.md specific
+    initial_version: str = Field(default="1.0.0", description="Initial version for CHANGELOG.md")
+    # SUPPORT.md specific
+    support_years: int = Field(default=5, ge=1, le=20, description="Years of committed support (SUPPORT.md)")
+
+
+class RemediationTemplateResponseV1(BaseModel):
+    """Response with generated remediation template."""
+    template_id: str
+    filename: str
+    content: str
+    addresses_rules: List[str]
+
+
+class RemediationTemplateListItemV1(BaseModel):
+    """Metadata for a single available template."""
+    template_id: str
+    filename: str
+    addresses_rules: List[str]
+    description: str
+
+
+# ============================================================================
 # Error Response Schema
 # ============================================================================
 

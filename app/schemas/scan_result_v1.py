@@ -6,7 +6,7 @@ All models use timezone-aware UTC datetimes and strict typing for deterministic 
 import re
 from datetime import datetime, timezone
 from typing import List, Optional, Literal, Dict, Any
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RuleResultV1(BaseModel):
@@ -180,10 +180,7 @@ class ScanResultV1(BaseModel):
             return v.replace(tzinfo=timezone.utc)
         return v
 
-    class Config:
-        """Pydantic v2 configuration."""
-        # Pydantic v2 handles datetime serialization automatically
-        # We ensure timezone-awareness via field validator
-        validate_assignment = True
-        # Use enum values for Literal types
-        use_enum_values = False
+    model_config = ConfigDict(
+        validate_assignment=True,
+        use_enum_values=False,
+    )
