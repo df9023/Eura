@@ -301,6 +301,96 @@ class RemediationTemplateListItemV1(BaseModel):
 
 
 # ============================================================================
+# VEX Export Schemas
+# ============================================================================
+
+class VexVulnerabilityItem(BaseModel):
+    """A single vulnerability for VEX export."""
+    vuln_id: str = Field(..., description="Vulnerability ID (e.g. CVE-2021-44228, GHSA-xxxx)")
+    affected_package: str = Field(..., description="Affected package name")
+    affected_version: str = Field(default="", description="Currently installed version")
+    fixed_version: str = Field(default="", description="Version that fixes the vulnerability")
+    severity: str = Field(default="UNKNOWN", description="Severity (CRITICAL, HIGH, MEDIUM, LOW)")
+    summary: str = Field(default="", description="Vulnerability summary")
+    ecosystem: str = Field(default="", description="Package ecosystem (pypi, npm, go, etc.)")
+    vex_status: Optional[Literal[
+        "not_affected", "affected", "fixed", "under_investigation"
+    ]] = Field(None, description="Explicit VEX status override")
+    justification: Optional[Literal[
+        "component_not_present",
+        "vulnerable_code_not_present",
+        "vulnerable_code_not_in_execute_path",
+        "vulnerable_code_cannot_be_controlled_by_adversary",
+        "inline_mitigations_already_exist",
+    ]] = Field(None, description="Justification for not_affected status")
+    action_statement: str = Field(default="", description="Recommended action")
+    impact_statement: str = Field(default="", description="Impact description")
+    references: List[str] = Field(default_factory=list, description="Reference URLs")
+
+
+class VexExportRequestV1(BaseModel):
+    """Request to generate an OpenVEX document from vulnerability data.
+
+    Provide a list of vulnerabilities.  Each vulnerability will become a
+    VEX statement describing its exploitability status.
+    """
+    vulnerabilities: List[VexVulnerabilityItem] = Field(
+        ..., description="Vulnerabilities to include in VEX document"
+    )
+    repo_name: Optional[str] = Field(None, description="Repository identifier (e.g. owner/repo)")
+    commit_sha: Optional[str] = Field(None, description="Git commit hash")
+    scan_id: Optional[str] = Field(None, description="EURA scan UUID")
+    author: str = Field(
+        default="EURA Compliance Scanner",
+        description="VEX document author"
+    )
+    author_role: Literal["tool", "vendor", "discoverer"] = Field(
+        default="tool", description="Author role"
+    )
+
+
+# ============================================================================
+# CSAF Export Schemas
+# ============================================================================
+
+class CsafVulnerabilityItem(BaseModel):
+    """A single vulnerability for CSAF export."""
+    vuln_id: str = Field(..., description="Vulnerability ID (e.g. CVE-2021-44228, GHSA-xxxx)")
+    affected_package: str = Field(..., description="Affected package name")
+    affected_version: str = Field(default="", description="Currently installed version")
+    fixed_version: str = Field(default="", description="Version that fixes the vulnerability")
+    severity: str = Field(default="UNKNOWN", description="Severity (CRITICAL, HIGH, MEDIUM, LOW)")
+    summary: str = Field(default="", description="Vulnerability summary")
+    ecosystem: str = Field(default="", description="Package ecosystem (pypi, npm, go, etc.)")
+    vex_status: Optional[str] = Field(None, description="Explicit VEX status override")
+    action_statement: str = Field(default="", description="Recommended action")
+    references: List[str] = Field(default_factory=list, description="Reference URLs")
+
+
+class CsafExportRequestV1(BaseModel):
+    """Request to generate a CSAF 2.0 advisory from vulnerability data.
+
+    Provide a list of vulnerabilities.  Each becomes a CSAF vulnerability
+    entry with product status, remediations, and severity scores.
+    """
+    vulnerabilities: List[CsafVulnerabilityItem] = Field(
+        ..., description="Vulnerabilities to include in CSAF advisory"
+    )
+    repo_name: Optional[str] = Field(None, description="Repository identifier (e.g. owner/repo)")
+    commit_sha: Optional[str] = Field(None, description="Git commit hash")
+    scan_id: Optional[str] = Field(None, description="EURA scan UUID")
+    title: Optional[str] = Field(None, description="Advisory title (auto-generated if omitted)")
+    publisher_name: str = Field(
+        default="EURA Compliance Scanner",
+        description="Publisher name for the advisory"
+    )
+    category: Literal["csaf_vex", "csaf_security_advisory"] = Field(
+        default="csaf_vex",
+        description="CSAF document category"
+    )
+
+
+# ============================================================================
 # Error Response Schema
 # ============================================================================
 

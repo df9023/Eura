@@ -17,11 +17,15 @@ from app.schemas.api_v1 import (
     ComplianceReportResponseV1, ComplianceReportListResponseV1, ReportGenerateRequestV1,
     SbomGenerateRequestV1,
     SarifExportRequestV1,
+    VexExportRequestV1,
+    CsafExportRequestV1,
     RemediationTemplateRequestV1, RemediationTemplateResponseV1,
 )
 from app.services.database import get_db_client
 from app.services.sbom import generate_sbom
 from app.services.sarif import generate_sarif
+from app.services.vex import generate_vex
+from app.services.csaf import generate_csaf
 from app.services.remediation_templates import (
     TEMPLATE_GENERATORS,
     TEMPLATE_FILENAMES,
@@ -903,6 +907,72 @@ async def export_sarif_v1(request: SarifExportRequestV1):
     )
 
     return sarif
+
+
+# ============================================================================
+# VEX Export Endpoint (local-only; no GitHub/DB required)
+# ============================================================================
+
+@router.post("/v1/exports/vex")
+async def export_vex_v1(request: VexExportRequestV1):
+    """
+    Generate an OpenVEX v0.2.0 JSON document from vulnerability data.
+
+    Accepts a list of vulnerabilities and produces a VEX document describing
+    the exploitability status of each vulnerability.  VEX documents are used
+    to communicate whether a known vulnerability actually affects a product.
+
+    Specification: https://github.com/openvex/spec
+    CRA Reference: Annex I, II — Vulnerability handling.
+
+    No external services (GitHub, database) required.
+    """
+    vulns = [v.model_dump() for v in request.vulnerabilities]
+
+    vex = generate_vex(
+        vulnerabilities=vulns,
+        repo_name=request.repo_name,
+        commit_sha=request.commit_sha,
+        scan_id=request.scan_id,
+        author=request.author,
+        author_role=request.author_role,
+    )
+
+    return vex
+
+
+# ============================================================================
+# CSAF Export Endpoint (local-only; no GitHub/DB required)
+# ============================================================================
+
+@router.post("/v1/exports/csaf")
+async def export_csaf_v1(request: CsafExportRequestV1):
+    """
+    Generate a CSAF 2.0 JSON advisory from vulnerability data.
+
+    Accepts a list of vulnerabilities and produces a CSAF document with
+    product tree, vulnerability entries, remediations, and severity scores.
+    CSAF advisories enable automated consumption by vulnerability scanners
+    and patch management tools.
+
+    Specification: https://docs.oasis-open.org/csaf/csaf/v2.0/
+    CRA Reference: Annex I — Incident reporting.
+
+    No external services (GitHub, database) required.
+    """
+    vulns = [v.model_dump() for v in request.vulnerabilities]
+
+    csaf = generate_csaf(
+        vulnerabilities=vulns,
+        repo_name=request.repo_name,
+        commit_sha=request.commit_sha,
+        scan_id=request.scan_id,
+        title=request.title,
+        publisher_name=request.publisher_name,
+        category=request.category,
+    )
+
+    return csaf
 
 
 # ============================================================================

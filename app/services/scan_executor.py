@@ -319,8 +319,9 @@ async def execute_scan(
                         )
 
                 # Check if this is a dependency manifest file
+                from app.services.dependencies import MANIFEST_FILES
                 file_lower = file_path.lower()
-                if any(file_lower.endswith(manifest) for manifest in ["requirements.txt", "package.json", "pyproject.toml"]):
+                if any(file_lower.endswith(manifest.lower()) for manifest in MANIFEST_FILES):
                     logger.debug("Extracting dependencies from: %s", file_path)
                     try:
                         deps = extract_dependencies(file_path, content)

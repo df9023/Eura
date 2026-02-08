@@ -75,6 +75,11 @@ app/
     ├── scan_executor.py      # Orchestration
     ├── rule_engine.py        # Rule evaluation (repo_scan_static, file_presence, dependency, content)
     ├── compliance_evaluation.py  # Verdict & scoring
+    ├── dependencies.py       # Polyglot parsers (Python/Node/Java/Go/Rust/Ruby — 10 manifest types)
+    ├── osv.py                # OSV vulnerability scanning (PyPI, npm, Go, crates.io, Maven, RubyGems, NuGet)
+    ├── sbom.py               # SPDX 2.3 + CycloneDX 1.5 generation with purls for all ecosystems
+    ├── sarif.py              # SARIF 2.1.0 export (rules + findings + vulns)
+    ├── remediation_templates.py  # 5 compliance document generators
     ├── ai_detector.py        # AI/ML detection
     ├── database.py           # Supabase ops
     └── github.py             # GitHub API
@@ -97,6 +102,9 @@ pytest tests/test_sbom.py -v
 pytest tests/test_cra_rules.py -v    # 87 tests for CRA rule expansion
 pytest tests/test_sarif.py -v        # 42 tests for SARIF 2.1.0 export
 pytest tests/test_remediation.py -v  # 54 tests for remediation templates
+pytest tests/test_dependency_parsers.py -v  # 59 tests for polyglot parsers
+pytest tests/test_vex.py -v               # 42 tests for VEX (OpenVEX) export
+pytest tests/test_csaf.py -v              # 47 tests for CSAF 2.0 export
 
 # Local scan (CLI)
 python -m cli.eura_cli scan ./path/to/repo
@@ -139,8 +147,8 @@ Machine-readable exports for EU regulatory audits:
 |----------|----------|--------|--------|
 | **SBOM** | `POST /api/v1/sbom/generate` | ✅ Done | CycloneDX/SPDX JSON |
 | **OSV Vuln Scan** | (integrated into scans) | ✅ Done | osv.dev batch API |
-| **VEX** | `POST /api/v1/exports/vex` | 🔲 TODO | OpenVEX JSON |
-| **CSAF** | `POST /api/v1/exports/csaf` | 🔲 TODO | CSAF 2.0 JSON |
+| **VEX** | `POST /api/v1/exports/vex` | ✅ Done | OpenVEX JSON |
+| **CSAF** | `POST /api/v1/exports/csaf` | ✅ Done | CSAF 2.0 JSON |
 | **SARIF** | `POST /api/v1/exports/sarif` | ✅ Done | SARIF 2.1.0 JSON |
 | **Model Card** | `POST /api/v1/exports/model-card` | 🔲 TODO | JSON/Markdown |
 | **Risk Register** | `POST /api/v1/exports/risk-register` | 🔲 TODO | JSON/CSV |

@@ -192,13 +192,24 @@ def _build_purl(d: Dict[str, Any]) -> str:
     if not name:
         return ""
     t = (d.get("type") or "generic").lower()
+    v = f"@{version}" if version and version != "unspecified" else ""
     # https://github.com/package-url/purl-spec
-    if t in ("python", "pip"):
-        return f"pkg:pypi/{name}@{version}" if version else f"pkg:pypi/{name}"
+    if t in ("python", "pip", "poetry"):
+        return f"pkg:pypi/{name}{v}"
     if t in ("node", "npm"):
-        return f"pkg:npm/{name}@{version}" if version else f"pkg:npm/{name}"
-    if t == "poetry":
-        return f"pkg:pypi/{name}@{version}" if version else f"pkg:pypi/{name}"
+        return f"pkg:npm/{name}{v}"
+    if t == "java":
+        # Maven: name is "groupId:artifactId"
+        if ":" in name:
+            group, artifact = name.split(":", 1)
+            return f"pkg:maven/{group}/{artifact}{v}"
+        return f"pkg:maven/{name}{v}"
+    if t == "go":
+        return f"pkg:golang/{name}{v}"
+    if t == "rust":
+        return f"pkg:cargo/{name}{v}"
+    if t == "ruby":
+        return f"pkg:gem/{name}{v}"
     return ""
 
 

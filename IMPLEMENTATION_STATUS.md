@@ -1,7 +1,7 @@
 # EURA 2.0 Implementation Status Summary
 
-**Last Updated:** February 7, 2026 (evening)  
-**Workspace:** Git worktree at `C:\Users\danie\.cursor\worktrees\Eura\wpn`
+**Last Updated:** February 7, 2026 (late evening)  
+**Workspace:** `C:\Users\danie\Downloads\Eura\Eura`
 
 ---
 
@@ -29,7 +29,12 @@ What Eura 2.0 can do today:
 | 16 | **SARIF export** | SARIF 2.1.0 JSON from rule results, security findings, and OSV vulnerabilities. `POST /api/v1/exports/sarif`. Compatible with GitHub Code Scanning and VS Code SARIF Viewer. |
 | 17 | **OpenAPI/Swagger UI** | Interactive API docs at `/docs` (Swagger UI) and `/redoc` (ReDoc). Auto-generated from FastAPI route definitions. |
 | 18 | **Remediation templates** | 5 template generators: SECURITY.md, CHANGELOG.md, SUPPORT.md, CONTRIBUTING.md, security-config. `GET /api/v1/remediation/templates`, `POST /api/v1/remediation/generate`. Addresses 12 CRA rules. |
-| 19 | **Tests** | Phase 0 contract tests; SBOM (7), badge (45), OSV (49), CRA rules (87), SARIF (42), remediation (54) tests. 284 tests total. |
+| 19 | **Polyglot dep parsers** | 6 new parsers: pom.xml, build.gradle(.kts), go.mod, Cargo.toml, Gemfile, gemspec. SBOM purls for Maven, Go, Cargo, Gem. |
+| 20 | **Hardened parsers** | Replaced hand-rolled TOML with `tomllib` (stdlib) for pyproject.toml & Cargo.toml. Fixed pom.xml namespace handling. Improved Gradle (dedup, platform deps, managed deps), requirements.txt (extras, URL deps, env markers, line continuations), Gemfile (git/path source filtering). |
+| 21 | **React Dashboard** | React 18 + TypeScript + Vite + Tailwind CSS + React Query. 4 pages: Dashboard (charts, metrics, exports), Scan (repo input), Results (score, verdict, rule table, exports), Rule Explorer (search, category filter). API proxy to FastAPI backend. |
+| 22 | **VEX Export** | OpenVEX v0.2.0 JSON from vulnerability data. `POST /api/v1/exports/vex`. Status determination (affected, not_affected, fixed, under_investigation), justifications, action statements, product IDs (purls). CRA Annex I/II compliance. |
+| 23 | **CSAF Export** | CSAF 2.0 JSON security advisories from vulnerability data. `POST /api/v1/exports/csaf`. Product tree, CVSS scores, remediations, references. CRA Annex I compliance. |
+| 24 | **Tests** | Phase 0 (3), SBOM (7), badge (45), OSV (49), CRA rules (87), SARIF (42), remediation (54), dep parsers (86), VEX (42), CSAF (47). 462 tests total. |
 
 ---
 
@@ -42,8 +47,8 @@ EURA must generate machine-readable artifacts for EU regulatory audits (see PRD 
 | Artifact | Format | Status | Endpoint |
 |----------|--------|--------|----------|
 | **SBOM** | CycloneDX/SPDX JSON | ✅ Implemented | `POST /api/v1/sbom/generate` |
-| **VEX Reports** | OpenVEX JSON | 🔲 Not Started | `POST /api/v1/exports/vex` |
-| **CSAF Advisories** | CSAF 2.0 JSON | 🔲 Not Started | `POST /api/v1/exports/csaf` |
+| **VEX Reports** | OpenVEX JSON | ✅ Implemented | `POST /api/v1/exports/vex` |
+| **CSAF Advisories** | CSAF 2.0 JSON | ✅ Implemented | `POST /api/v1/exports/csaf` |
 | **SARIF Reports** | SARIF 2.1.0 JSON | ✅ Implemented | `POST /api/v1/exports/sarif` |
 
 ### AI Act Artifacts
@@ -165,15 +170,62 @@ EURA must generate machine-readable artifacts for EU regulatory audits (see PRD 
 
 ### Medium-term (Phase 2-3)
 
-8. **More dependency parsers** (Java, Go, Rust, Ruby)
+8. ~~**More dependency parsers**~~ ✅ DONE  
+   Added 6 new parsers (Java, Go, Rust, Ruby) to `app/services/dependencies.py`:
+   - **Java**: `pom.xml` (Maven XML), `build.gradle` / `build.gradle.kts` (Gradle Groovy+Kotlin DSL)
+   - **Go**: `go.mod` (single-line + block `require` syntax)
+   - **Rust**: `Cargo.toml` (`[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`)
+   - **Ruby**: `Gemfile`, `*.gemspec` (runtime + development dependencies)
+   - SBOM purl generation for all new ecosystems (`pkg:maven`, `pkg:golang`, `pkg:cargo`, `pkg:gem`)
+   - Both scanners (`local_scanner.py`, `scan_executor.py`) updated to recognize all 10 manifest files
+   - See `tests/test_dependency_parsers.py` (59 tests)
 9. **License detection from manifest files**
 10. **Historical compliance trends API**
 11. **Multi-repo project scanning**
 12. **PDF/Excel report export**
 
+### Completed (Phase 2)
+
+9. ~~**Frontend Dashboard**~~ ✅ DONE (Enhanced)
+   React 18 + TypeScript + Vite + Tailwind CSS + React Query + Recharts.
+   - **Dashboard Page**: Compliance score, verdict, dependency/vuln metrics, category breakdown bar chart, severity donut chart, top failures list, export panel
+   - **Scan Page**: GitHub repo URL input, loading state, error handling, persists results to localStorage
+   - **Results Dashboard**: Circular compliance score, verdict badge, dependency/vulnerability counts, filterable rule results table with evidence toggle, integrated export panel
+   - **Rule Explorer**: Browse all 35 CRA rules, filter by category (BASE/SEC/VULN/DOC/LIFE), search by keyword, severity badges
+   - **Export Panel**: Download SARIF, SBOM (SPDX/CycloneDX), VEX (OpenVEX), CSAF 2.0 — one-click export to JSON
+   - Shadcn/ui-style components: Card, Button, Badge, Input
+   - Vite dev proxy to FastAPI backend (`/api` -> localhost:8000)
+   - See `frontend/` directory
+
+11. ~~**VEX Export**~~ ✅ DONE
+    OpenVEX v0.2.0 JSON from vulnerability data. `POST /api/v1/exports/vex`.
+    - Status determination: affected, not_affected, fixed, under_investigation
+    - Justification support for not_affected (5 valid justifications per OpenVEX spec)
+    - Auto-generated action statements from fixed versions
+    - Product IDs as purl-like identifiers (pkg:ecosystem/package@version)
+    - CRA Annex I/II — Vulnerability handling
+    - See `app/services/vex.py` and `tests/test_vex.py` (42 tests)
+
+12. ~~**CSAF Export**~~ ✅ DONE
+    CSAF 2.0 JSON security advisories from vulnerability data. `POST /api/v1/exports/csaf`.
+    - Product tree with ecosystem grouping and deduplication
+    - CVSS v3.1 severity scoring by severity level
+    - Vendor fix remediations for packages with known fixes
+    - CVE identification, references, TLP distribution labels
+    - CRA Annex I — Incident reporting
+    - See `app/services/csaf.py` and `tests/test_csaf.py` (47 tests)
+
+10. ~~**Hardened Dependency Parsers**~~ ✅ DONE
+    Replaced fragile hand-rolled parsers with proper libraries:
+    - `pyproject.toml` / `Cargo.toml`: `tomllib` (stdlib) — handles multi-line, inline tables, nested structures
+    - `pom.xml`: Proper XML namespace detection — no more regex namespace stripping
+    - `build.gradle`: Deduplication, platform() deps, managed (versionless) deps, ksp config
+    - `requirements.txt`: Extras, URL deps, env markers, line continuations, -e/-c/-i flags
+    - `Gemfile`: git/path source filtering
+    - 86 parser tests (up from 59)
+
 ### Deferred (Phase 4+)
 
-- Frontend dashboard
 - VS Code extension
 - Custom rule builder
 - GitLab/Bitbucket/Azure DevOps integrations
@@ -809,4 +861,4 @@ python -m cli.eura_cli scan . --environment production --format json --output re
 ---
 
 **Last Updated:** February 7, 2026  
-**Summary:** Added OSV vulnerability scanning (49 tests, 8 ecosystems, CRA-BASE-003 functional) and compliance badge endpoints (45 tests). Next: expand to 35+ CRA rules, SARIF/VEX exports.
+**Summary:** Added VEX (OpenVEX v0.2.0) and CSAF 2.0 exports — completes all 4 CRA mandatory artifacts (SBOM, SARIF, VEX, CSAF). Enhanced frontend dashboard with Recharts analytics, export panel for all artifact types. 462 tests total.

@@ -174,10 +174,10 @@ class LocalScanner:
         
         # 4. Extract dependencies from manifest files
         dependencies: List[Dict[str, str]] = []
-        manifest_files = ["requirements.txt", "package.json", "pyproject.toml", "Pipfile"]
+        from app.services.dependencies import MANIFEST_FILES
         
         for file_path, content in file_contents.items():
-            if any(file_path.endswith(m) or file_path.endswith(m.lower()) for m in manifest_files):
+            if any(file_path.endswith(m) or file_path.endswith(m.lower()) for m in MANIFEST_FILES):
                 deps = extract_dependencies(file_path, content)
                 dependencies.extend(deps)
         
